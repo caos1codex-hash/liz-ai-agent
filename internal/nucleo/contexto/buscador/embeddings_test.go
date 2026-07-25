@@ -2,7 +2,9 @@ package buscador
 
 import (
         "errors"
+        "fmt"
         "math"
+        "sync"
         "testing"
 )
 
@@ -355,6 +357,146 @@ func TestSqrt_ValoresConocidos(t *testing.T) {
                 if diff < -0.001 || diff > 0.001 {
                         t.Errorf("math.Sqrt(%f) = %f, esperaba %f", c.x, got, c.esperado)
                 }
+        }
+}
+
+// ═══════════════════════════════════════════════════════
+// P4.1: CONCURRENCY TESTS
+// ═══════════════════════════════════════════════════════
+
+// TestBuscadorEmbeddings_ConcurrentIndexarBuscar lanza 10 goroutines indexando
+// y 10 goroutines buscando simultáneamente para verificar seguridad concurrente.
+func TestBuscadorEmbeddings_ConcurrentIndexarBuscar(t *testing.T) {
+        provider := &mockProvider{dimensiones: 8}
+        be := NuevoBuscadorEmbeddings(provider)
+
+        // Pre-indexar 20 fragmentos
+        for i := 0; i < 20; i++ {
+                be.IndexarConEmbeddings(FragmentoBuscable{
+                        ID:        fmt.Sprintf("pre-%d", i),
+                        Contenido: fmt.Sprintf("func Procesar%d(ctx context.Context, req *Request%d) (*Response%d, error) { return nil, nil }", i, i, i),
+                })
+        }
+
+        var wg sync.WaitGroup
+        errors := make(chan error, 20)
+
+        // 10 goroutines indexando
+        for i := 0; i < 10; i++ {
+                wg.Add(1)
+                go func(id int) {
+                        defer wg.Done()
+                        for j := 0; j < 5; j++ {
+                                fragID := fmt.Sprintf("idx-%d-%d", id, j)
+                                err := be.IndexarConEmbeddings(FragmentoBuscable{
+                                        ID:        fragID,
+                                        Contenido: fmt.Sprintf("handler_%d procesa request tipo %d con validación de parámetros", id, j),
+                                })
+                                if err != nil {
+                                        errors <- fmt.Errorf("goroutine idx-%d: %w", id, err)
+                                }
+                        }
+                }(i)
+        }
+
+        // 10 goroutines buscando
+        for i := 0; i < 10; i++ {
+                wg.Add(1)
+                go func(id int) {
+                        defer wg.Done()
+                        for j := 0; j < 5; j++ {
+                                query := fmt.Sprintf("procesar request handler_%d", id)
+                                resultados := be.BuscarHibridoConEmbeddings(query, 5)
+                                // Verificar que los resultados son consistentes
+                                for _, r := range resultados {
+                                        if r.Fragmento.ID == "" {
+                                                errors <- fmt.Errorf("goroutine search-%d: resultado con ID vacío", id)
+                                        }
+                                }
+                        }
+                }(i)
+        }
+
+        wg.Wait()
+        close(errors)
+
+        // Verificar que no hubo errores de concurrencia
+        for err := range errors {
+                t.Errorf("error de concurrencia: %v", err)
+        }
+
+        // Verificar que el estado final es consistente
+        total := be.Total()
+        totalEmb := be.TotalEmbeddings()
+        if total == 0 {
+                t.Error("el total de fragmentos debería ser > 0 después de indexación concurrente")
+        }
+        if totalEmb == 0 {
+                t.Error("el total de embeddings debería ser > 0")
+        }
+}
+
+// ═══════════════════════════════════════════════════════
+// P4.2: ERROR PATH TESTS
+// ═══════════════════════════════════════════════════════
+
+// TestBuscadorEmbeddings_ProviderFalla_Gracioso verifica que cuando el provider
+// de embeddings falla completamente (errores en indexación y búsqueda), el buscador
+// degrada gracefulmente a BM25 puro y sigue retornando resultados correctos.
+func TestBuscadorEmbeddings_ProviderFalla_Gracioso(t *testing.T) {
+        provider := &mockProvider{dimensiones: 8}
+        be := NuevoBuscadorEmbeddings(provider)
+
+        // Indexar fragmentos con embeddings funcionales (snake_case para que
+        // el tokenizador BM25 pueda separar las palabras correctamente)
+        fragments := []FragmentoBuscable{
+                {ID: "f-auth", Contenido: "authenticate_user with username and password to get token jwt auth"},
+                {ID: "f-db", Contenido: "connect_postgres database using dsn connection string sql driver"},
+                {ID: "f-cache", Contenido: "set_cache with key and value byte ttl duration redis"},
+                {ID: "f-logger", Contenido: "logger_middleware handles http request response logging"},
+                {ID: "f-router", Contenido: "setup_router configures mux routes handlers endpoints"},
+        }
+        for _, f := range fragments {
+                _ = be.IndexarConEmbeddings(f)
+        }
+
+        // Hacer que el provider falle (simular API caída)
+        provider.failOnCall = true
+
+        // Intentar indexar un fragmento nuevo — debería fallar pero BM25 debería tenerlo
+        err := be.IndexarConEmbeddings(FragmentoBuscable{ID: "f-new", Contenido: "nuevo fragmento para buscar"})
+        if err == nil {
+                t.Error("debería retornar error cuando el provider falla")
+        }
+        if be.Total() < 6 {
+                t.Errorf("BM25 debería tener al menos 6 fragmentos (5 originales + 1 fallback), got %d", be.Total())
+        }
+
+        // Búsqueda híbrida debería caer a BM25 puro
+        resultados := be.BuscarHibridoConEmbeddings("authenticate postgres cache", 10)
+        if len(resultados) == 0 {
+                t.Fatal("la búsqueda debería retornar resultados vía BM25 (fallback graceful)")
+        }
+
+        // Verificar que los resultados más relevantes están arriba
+        ids := make(map[string]bool)
+        for _, r := range resultados {
+                ids[r.Fragmento.ID] = true
+        }
+        if !ids["f-auth"] {
+                t.Error("f-auth debería estar en los resultados (menciona 'authenticate')")
+        }
+        if !ids["f-db"] {
+                t.Error("f-db debería estar en los resultados (menciona 'postgres')")
+        }
+        if !ids["f-cache"] {
+                t.Error("f-cache debería estar en los resultados (menciona 'cache')")
+        }
+
+        // BuscarVector debería retornar error
+        _, err = be.BuscarVector("test", 10)
+        if err == nil {
+                t.Error("BuscarVector debería fallar cuando el provider falla")
         }
 }
 
