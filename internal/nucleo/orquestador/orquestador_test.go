@@ -1,6 +1,7 @@
 package orquestador
 
 import (
+        "context"
         "encoding/json"
         "fmt"
         "net/http"
@@ -487,7 +488,7 @@ func TestCompletarStream_Exitoso(t *testing.T) {
                 modeloTest("m1", true),
         })
 
-        ch, err := o.CompletarStream(SolicitudChat{
+        ch, err := o.CompletarStream(context.Background(), SolicitudChat{
                 Mensajes: []MensajeChat{{Rol: "user", Contenido: "Hola"}},
         })
         if err != nil {
@@ -528,7 +529,7 @@ func TestCompletarStream_ServidorCaeTarde_RetornaChunksParciales(t *testing.T) {
                 modeloTest("m1", true),
         })
 
-        ch, _ := o.CompletarStream(SolicitudChat{
+        ch, _ := o.CompletarStream(context.Background(), SolicitudChat{
                 Mensajes: []MensajeChat{{Rol: "user", Contenido: "x"}},
         })
 
@@ -586,19 +587,19 @@ func TestEmbeddings_Exitoso(t *testing.T) {
 // ═══════════════════════════════════════════════════════
 
 func TestToLower(t *testing.T) {
-        if toLower("CodeLLAMA") != "codellama" {
-                t.Error("toLower incorrecto")
+        if strings.ToLower("CodeLLAMA") != "codellama" {
+                t.Error("ToLower incorrecto")
         }
 }
 
 func TestContainsSubstring(t *testing.T) {
-        if !containsSubstring("codellama-70b", "code") {
+        if !strings.Contains("codellama-70b", "code") {
                 t.Error("debería contener 'code'")
         }
-        if containsSubstring("llama-70b", "code") {
+        if strings.Contains("llama-70b", "code") {
                 t.Error("NO debería contener 'code'")
         }
-        if !containsSubstring("anything", "") {
+        if !strings.Contains("anything", "") {
                 t.Error("substring vacío debería retornar true")
         }
 }

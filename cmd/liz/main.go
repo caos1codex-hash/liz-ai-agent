@@ -135,11 +135,17 @@ func main() {
         orch, err = orquestador.NuevoOrquestador(gestorCfg)
         if err != nil {
                 log.Warn("Orquestador NVIDIA no inicializado: %v (endpoints /api/v1/orquestador/* responderán 503)", err)
+                log.Info("Búsqueda híbrida no disponible (sin orquestador NVIDIA). Usando solo BM25.")
         } else {
                 orch = orch.ConLog(func(formato string, args ...interface{}) {
                         log.Info("[orquestador] "+formato, args...)
                 })
                 log.Info("Orquestador inicializado: %d modelos disponibles", len(orch.ModelosDisponibles()))
+
+                // Conectar búsqueda híbrida (BM25 + embeddings vectoriales)
+                provider := orquestador.NuevoProviderEmbeddings(orch.Cliente(), "nvidia/nv-embed-v1")
+                coordinador = coordinador.ConProviderEmbeddings(provider)
+                log.Info("Búsqueda híbrida (BM25+vector) habilitada con nvidia/nv-embed-v1")
         }
 
         // --- Servidor ---

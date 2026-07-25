@@ -9,10 +9,9 @@
 //      - Scoring: IDF * (tf * (k1+1)) / (tf + k1*(1-b+b*|d|/avgdl))
 //      - Parámetros: k1=1.5, b=0.75 (valores estándar de la literatura)
 //
-//   2. Vector embeddings (opcional, futuro): similitud coseno
-//      - Cuando Fase 4 (NVIDIA) esté lista, se usarán embeddings de
-//        nvidia/nv-embed-v1 (1024 dim)
-//      - Por ahora, fallback a BM25 puro
+//   2. Vector embeddings: similitud coseno (integrado vía BuscadorEmbeddings)
+//      - BuscadorEmbeddings extiende Buscador con índice vectorial
+//      - Provider: nvidia/nv-embed-v1 (1024 dim) u otro compatible
 //
 //   3. Reciprocal Rank Fusion (RRF): combina ambos rankings
 //      - score(d) = sum(1 / (k + rank_i(d))) para cada ranking i, k=60
@@ -73,10 +72,6 @@ type Buscador struct {
         totalFragmentos int
         totalTokens     int
         avgdl           float64 // average document length
-
-        // Vector embeddings (futuro, Fase 4)
-        // embeddings map[string][]float32 // id → vector
-        // clienteEmbeddings *nvidia.ClienteEmbeddings
 }
 
 // NuevoBuscador crea un nuevo buscador vacío.
@@ -246,11 +241,7 @@ func (b *Buscador) BuscarBM25(query string, topK int) []ResultadoBusqueda {
 // Parámetro k de Reciprocal Rank Fusion (estándar de la literatura).
 const rrfK = 60
 
-// BuscarHibrido combina BM25 con búsqueda vector (cuando esté disponible)
-// usando Reciprocal Rank Fusion (RRF).
-//
-// Por ahora solo usa BM25, pero la firma queda preparada para cuando
-// Fase 4 (NVIDIA embeddings) esté lista.
+// BuscarHibrido combina BM25 con búsqueda vector usando RRF.
 //
 // Fórmula RRF:
 //   score(d) = sum(1 / (k + rank_i(d))) para cada ranking i
@@ -259,7 +250,7 @@ func (b *Buscador) BuscarHibrido(query string, topK int) []ResultadoBusqueda {
                 return []ResultadoBusqueda{}
         }
 
-        // Por ahora, solo BM25 (vector search llegará con Fase 4)
+        // Solo BM25 (vector search disponible vía BuscarHibridoConEmbeddings)
         resultados := b.BuscarBM25(query, topK)
 
         // Recalcular score como RRF (con un solo ranking, RRF reduce a 1/(k+rank))
@@ -270,88 +261,7 @@ func (b *Buscador) BuscarHibrido(query string, topK int) []ResultadoBusqueda {
                 }
         }
 
-        // Re-ordenar por score RRF (que ya está en orden descendente gracias al rank BM25)
-        sort.Slice(resultados, func(i, j int) bool {
-                return resultados[i].Score > resultados[j].Score
-        })
-
         return resultados
-}
-
-// BuscarHibridoConVectores es el stub para cuando los embeddings estén disponibles.
-// Recibe un ranking de vectores pre-computado y lo fusiona con BM25 vía RRF.
-func (b *Buscador) BuscarHibridoConVectores(query string, topK int, vectorRanking []ResultadoBusqueda) []ResultadoBusqueda {
-        bm25Resultados := b.BuscarBM25(query, topK*2) // amplio para mejor fusión
-
-        // Construir mapa de rank por ID
-        bm25Rank := make(map[string]int)
-        for i, r := range bm25Resultados {
-                bm25Rank[r.Fragmento.ID] = i + 1
-        }
-
-        vectorRank := make(map[string]int)
-        vectorScore := make(map[string]float64)
-        for i, r := range vectorRanking {
-                vectorRank[r.Fragmento.ID] = i + 1
-                vectorScore[r.Fragmento.ID] = r.ScoreVector
-        }
-
-        // Combinar IDs de ambos rankings
-        todosIDs := make(map[string]bool)
-        for id := range bm25Rank {
-                todosIDs[id] = true
-        }
-        for id := range vectorRank {
-                todosIDs[id] = true
-        }
-
-        // Calcular score RRF
-        resultados := make([]ResultadoBusqueda, 0, len(todosIDs))
-        for id := range todosIDs {
-                score := 0.0
-                if rank, ok := bm25Rank[id]; ok {
-                        score += 1.0 / float64(rrfK+rank)
-                }
-                if rank, ok := vectorRank[id]; ok {
-                        score += 1.0 / float64(rrfK+rank)
-                }
-
-                // Tomar el fragmento (de BM25 o de vector)
-                var frag FragmentoBuscable
-                b.mu.RLock()
-                if f, ok := b.fragmentos[id]; ok {
-                        frag = f
-                }
-                b.mu.RUnlock()
-                if frag.ID == "" {
-                        // Buscar en vectorRanking
-                        for _, r := range vectorRanking {
-                                if r.Fragmento.ID == id {
-                                        frag = r.Fragmento
-                                        break
-                                }
-                        }
-                }
-
-                resultados = append(resultados, ResultadoBusqueda{
-                        Fragmento:   frag,
-                        Score:       score,
-                        ScoreBM25:   0, // se puede llenar si se quiere
-                        ScoreVector: vectorScore[id],
-                        RankBM25:    bm25Rank[id],
-                        RankVector:  vectorRank[id],
-                })
-        }
-
-        // Ordenar por score RRF descendente
-        sort.Slice(resultados, func(i, j int) bool {
-                return resultados[i].Score > resultados[j].Score
-        })
-
-        if topK > len(resultados) {
-                topK = len(resultados)
-        }
-        return resultados[:topK]
 }
 
 // ═══════════════════════════════════════════════════════

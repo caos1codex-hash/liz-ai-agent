@@ -41,6 +41,12 @@ import (
 // TIPOS
 // ═══════════════════════════════════════════════════════
 
+// BuscadorHibrido es la interfaz mínima que necesita el empaquetador.
+// Permite desacoplar del tipo concreto *buscador.Buscador.
+type BuscadorHibrido interface {
+        BuscarHibrido(query string, topK int) []buscador.ResultadoBusqueda
+}
+
 // SolicitudEmpaquetado describe qué contexto se necesita.
 type SolicitudEmpaquetado struct {
         Proyecto          string   // nombre del proyecto
@@ -106,7 +112,7 @@ const (
 //     (necesario para capas 3 y 4)
 type DatosEmpaquetado struct {
         MapaRepo *mapa_repo.MapaRepo
-        Buscador *buscador.Buscador
+        Buscador BuscadorHibrido
         Grafo    *grafo.Grafo
         // Callbacks opcionales:
         ObtenerFragmento        func(id string) (buscador.FragmentoBuscable, bool)

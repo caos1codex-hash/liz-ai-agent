@@ -3,6 +3,7 @@ package orquestador
 import (
         "bufio"
         "bytes"
+        "context"
         "encoding/json"
         "fmt"
         "io"
@@ -186,7 +187,8 @@ func parsearErrorAPI(status int, body []byte) *ErrorAPI {
 //
 // El llamador debe leer del canal hasta que se cierre.
 // Si hay error de red, se envía un ChunkStream con Error != nil y se cierra.
-func (c *ClienteNVIDIA) ChatCompletionStream(req solicitudChatOpenAI) (<-chan ChunkStream, error) {
+// Si ctx se cancela, el goroutine de lectura termina limpiamente.
+func (c *ClienteNVIDIA) ChatCompletionStream(ctx context.Context, req solicitudChatOpenAI) (<-chan ChunkStream, error) {
         req.Stream = true
 
         body, err := json.Marshal(req)
@@ -195,7 +197,7 @@ func (c *ClienteNVIDIA) ChatCompletionStream(req solicitudChatOpenAI) (<-chan Ch
         }
 
         url := c.endpoint + "/chat/completions"
-        httpReq, err := http.NewRequest("POST", url, bytes.NewReader(body))
+        httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
         if err != nil {
                 return nil, fmt.Errorf("error creando request: %w", err)
         }
@@ -225,6 +227,13 @@ func (c *ClienteNVIDIA) ChatCompletionStream(req solicitudChatOpenAI) (<-chan Ch
                 // Leer SSE stream: líneas "data: {...}\n\n"
                 reader := bufio.NewReader(resp.Body)
                 for {
+                        // Verificar cancelación del contexto
+                        select {
+                        case <-ctx.Done():
+                                return
+                        default:
+                        }
+
                         line, err := reader.ReadString('\n')
                         if err != nil {
                                 if err != io.EOF {
@@ -269,7 +278,7 @@ func (c *ClienteNVIDIA) ChatCompletionStream(req solicitudChatOpenAI) (<-chan Ch
 }
 
 // ═══════════════════════════════════════════════════════
-// EMBEDDINGS (stub para Fase 4 - integración con buscador)
+// EMBEDDINGS
 // ═══════════════════════════════════════════════════════
 
 // SolicitudEmbeddings es el body para /embeddings.
@@ -293,9 +302,6 @@ type RespuestaEmbeddings struct {
 
 // Embeddings genera embeddings para los textos dados usando el modelo especificado.
 // Modelo por defecto: "nvidia/nv-embed-v1" (1024 dimensiones).
-//
-// NOTA: este método es un stub que se activará en Iteración 6 para integrar
-// con el sistema de búsqueda híbrida (BM25 + vector + RRF).
 func (c *ClienteNVIDIA) Embeddings(textos []string, modelo string) (*RespuestaEmbeddings, *ErrorAPI, error) {
         if modelo == "" {
                 modelo = "nvidia/nv-embed-v1"

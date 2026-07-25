@@ -1,9 +1,10 @@
 package orquestador
 
 import (
+        "context"
         "fmt"
         "sort"
-        "sync"
+        "strings"
         "time"
 
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/config"
@@ -88,16 +89,16 @@ func filterOut(modelos []config.ConfiguracionModelo, nombre string) []config.Con
 // TareaContextoLargo → "long" o "128k", etc.
 func filterByEspecialidad(modelos []config.ConfiguracionModelo, especialidad string) []config.ConfiguracionModelo {
         // Mapeo de tareas a substrings típicos en nombres de modelo
-        substrings := subsstringsParaEspecialidad(especialidad)
+        substrings := substringsParaEspecialidad(especialidad)
         if len(substrings) == 0 {
                 return nil
         }
 
         resultado := make([]config.ConfiguracionModelo, 0)
         for _, m := range modelos {
-                nombreLower := toLower(m.Nombre)
+                nombreLower := strings.ToLower(m.Nombre)
                 for _, sub := range substrings {
-                        if containsSubstring(nombreLower, sub) {
+                        if strings.Contains(nombreLower, sub) {
                                 resultado = append(resultado, m)
                                 break
                         }
@@ -106,10 +107,10 @@ func filterByEspecialidad(modelos []config.ConfiguracionModelo, especialidad str
         return resultado
 }
 
-// subsstringsParaEspecialidad retorna substrings típicos en nombres de modelo
+// substringsParaEspecialidad retorna substrings típicos en nombres de modelo
 // para cada tipo de tarea.
-func subsstringsParaEspecialidad(esp string) []string {
-        switch toLower(esp) {
+func substringsParaEspecialidad(esp string) []string {
+        switch strings.ToLower(esp) {
         case "codigo":
                 return []string{"code", "codellama", "deepseek-coder", "starcoder"}
         case "razonamiento":
@@ -125,7 +126,7 @@ func subsstringsParaEspecialidad(esp string) []string {
         case "general":
                 return []string{"llama", "qwen", "mistral"}
         default:
-                return []string{toLower(esp)}
+                return []string{strings.ToLower(esp)}
         }
 }
 
@@ -215,9 +216,7 @@ func (o *Orquestador) Completar(req SolicitudChat) (*RespuestaChat, error) {
                 o.registrarFallo(modelo.Nombre, razon)
 
                 ultimoError = err
-                if err != nil {
-                        ultimoError = err
-                } else {
+                if apiErr != nil {
                         ultimoError = apiErr
                 }
 
@@ -320,7 +319,7 @@ func convertirMensajes(msgs []MensajeChat) []mensajeOpenAI {
 // al cliente. Esta implementación solo reintenta si el error ocurre ANTES de
 // recibir el primer chunk ( handshake). Si falla a mitad del stream, se
 // propaga el error al cliente.
-func (o *Orquestador) CompletarStream(req SolicitudChat) (<-chan ChunkStream, error) {
+func (o *Orquestador) CompletarStream(ctx context.Context, req SolicitudChat) (<-chan ChunkStream, error) {
         modeloPrincipal, fallback, err := o.SeleccionarModelo(req.Tarea, req.Modelo)
         if err != nil {
                 return nil, fmt.Errorf("error seleccionando modelo: %w", err)
@@ -349,7 +348,7 @@ func (o *Orquestador) CompletarStream(req SolicitudChat) (<-chan ChunkStream, er
                         solicitud.MaxTokens = &mt
                 }
 
-                ch, err := o.cliente.ChatCompletionStream(solicitud)
+                ch, err := o.cliente.ChatCompletionStream(ctx, solicitud)
                 if err != nil {
                         // Error antes de stream: reintentar
                         apiErr, ok := err.(*ErrorAPI)
@@ -392,7 +391,7 @@ func (o *Orquestador) CompletarStream(req SolicitudChat) (<-chan ChunkStream, er
                 return out, nil
         }
 
-        return nil, fmt.Errorf("no se pudo establecer stream con ningún modelo")
+        return nil, fmt.Errorf("no se pudo establecer stream con ningún modelo tras %d intentos", len(cadena))
 }
 
 // ═══════════════════════════════════════════════════════
@@ -443,44 +442,3 @@ func (o *Orquestador) registrarFallo(modelo, razon string) {
         o.logFunc("modelo %s falló (razón: %s) — total: %d, éxitos: %d, fallos: %d, tasa: %.2f",
                 modelo, razon, m.TotalSolicitudes, m.Exitos, m.Fallos, m.TasaExito)
 }
-
-// ═══════════════════════════════════════════════════════
-// HELPERS STRING (sin importar strings para mantener imports mínimos)
-// ═══════════════════════════════════════════════════════
-
-// toLower convierte ASCII a minúsculas sin importar strings.
-func toLower(s string) string {
-        b := []byte(s)
-        for i, c := range b {
-                if c >= 'A' && c <= 'Z' {
-                        b[i] = c + ('a' - 'A')
-                }
-        }
-        return string(b)
-}
-
-// containsSubstring verifica si s contiene sub (sin importar strings).
-func containsSubstring(s, sub string) bool {
-        if len(sub) == 0 {
-                return true
-        }
-        if len(sub) > len(s) {
-                return false
-        }
-        for i := 0; i <= len(s)-len(sub); i++ {
-                match := true
-                for j := 0; j < len(sub); j++ {
-                        if s[i+j] != sub[j] {
-                                match = false
-                                break
-                        }
-                }
-                if match {
-                        return true
-                }
-        }
-        return false
-}
-
-//sync.Mutex used to satisfy import
-var _ = sync.Mutex{}

@@ -110,7 +110,7 @@ func (s *Servidor) handlerOrquestadorCompletar(w http.ResponseWriter, r *http.Re
 
         // Streaming SSE
         if req.Stream {
-                ch, err := s.orquestador.CompletarStream(solicitud)
+                ch, err := s.orquestador.CompletarStream(r.Context(), solicitud)
                 if err != nil {
                         s.responderError(w, http.StatusBadGateway, "error iniciando stream: "+err.Error())
                         return

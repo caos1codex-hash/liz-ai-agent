@@ -19,6 +19,7 @@ import (
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto/mapa"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto/mapa_repo"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto/resumen"
+        "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto/tracker"
 )
 
 // ═══════════════════════════════════════════════════════
@@ -56,6 +57,18 @@ type Coordinador struct {
         dirBase   string                   // ~/.liz/contexto/proyectos/
         proyectos map[string]*ProyectoContexto // nombre → proyecto
         logFunc   func(string, ...interface{})
+        providerEmbeddings buscador.EmbeddingsProvider // opcional, para BM25+vector
+}
+
+// IBuscador define la interfaz de búsqueda usada por el coordinador.
+// Tanto *buscador.Buscador como *buscador.BuscadorEmbeddings la implementan.
+type IBuscador interface {
+        Indexar(f buscador.FragmentoBuscable)
+        Desindexar(id string)
+        BuscarBM25(query string, topK int) []buscador.ResultadoBusqueda
+        BuscarHibrido(query string, topK int) []buscador.ResultadoBusqueda
+        Total() int
+        Estadisticas() buscador.EstadisticasBuscador
 }
 
 // ProyectoContexto agrupa los componentes de contexto para un proyecto.
@@ -68,10 +81,11 @@ type ProyectoContexto struct {
         Almacen      *fragmentos.Almacen
         Indice       *indice.GestorIndice
         GenResumen   *resumen.Generador
+        Tracker      *tracker.TrackerEdiciones
         // Nuevos componentes Fase 3.5:
         Parser       *arbol_ast.Parser
         Grafo        *grafo.Grafo
-        Buscador     *buscador.Buscador
+        Buscador     IBuscador
         GenMapaRepo  *mapa_repo.Generador
         Empaquetador *empaquetador.Empaquetador
 }
@@ -100,6 +114,29 @@ func (c *Coordinador) ConLog(fn func(string, ...interface{})) *Coordinador {
                 c.logFunc = fn
         }
         return c
+}
+
+// ConProviderEmbeddings configura un provider de embeddings para búsqueda híbrida.
+// Debe llamarse antes de indexar proyectos.
+func (c *Coordinador) ConProviderEmbeddings(p buscador.EmbeddingsProvider) *Coordinador {
+        c.providerEmbeddings = p
+        return c
+}
+
+// TieneBusquedaHibrida retorna true si hay provider de embeddings configurado.
+func (c *Coordinador) TieneBusquedaHibrida() bool {
+        return c.providerEmbeddings != nil
+}
+
+// RegistrarEdicion registra una edición de archivo en el tracker del proyecto.
+func (c *Coordinador) RegistrarEdicion(nombreProyecto, ruta string) {
+        c.mu.RLock()
+        proy, ok := c.proyectos[nombreProyecto]
+        c.mu.RUnlock()
+        if !ok || proy.Tracker == nil {
+                return
+        }
+        proy.Tracker.RegistrarEdicion(ruta)
 }
 
 // ═══════════════════════════════════════════════════════
@@ -289,11 +326,15 @@ func (c *Coordinador) construirGrafo(proy *ProyectoContexto, rutaAbs string, ind
                 proy.Grafo.TotalArchivos(), proy.Grafo.TotalAristas())
 }
 
-// indexarBuscador indexa todos los fragmentos en el buscador BM25.
+// indexarBuscador indexa todos los fragmentos en el buscador BM25 (o híbrido si hay provider).
 // Si el buscador ya tenía datos, se limpia y se re-indexa desde cero.
 func (c *Coordinador) indexarBuscador(proy *ProyectoContexto) {
-        // Crear nuevo buscador (limpio)
-        proy.Buscador = buscador.NuevoBuscador()
+        // Crear buscador: híbrido si hay provider, BM25 puro si no
+        if c.providerEmbeddings != nil {
+                proy.Buscador = buscador.NuevoBuscadorEmbeddings(c.providerEmbeddings)
+        } else {
+                proy.Buscador = buscador.NuevoBuscador()
+        }
 
         // Listar todos los fragmentos del almacén (metadata solo)
         frags, err := proy.Almacen.Listar()
@@ -739,6 +780,7 @@ func (c *Coordinador) obtenerOCrearProyecto(nombre, ruta string) (*ProyectoConte
                 Almacen:      almacen.ConLog(c.logFunc),
                 Indice:       gestorIndice.ConLog(c.logFunc),
                 GenResumen:   resumen.NuevoGenerador().ConLog(c.logFunc).ConDirResumen(dirResumenes),
+                Tracker:      tracker.NuevoTracker(20).ConLog(c.logFunc),
                 // Nuevos componentes Fase 3.5:
                 Parser:       arbol_ast.NuevoParser(),
                 Grafo:        grafo.NuevoGrafo(),
@@ -818,6 +860,7 @@ func (c *Coordinador) cargarProyectos() {
                         Almacen:      almacen.ConLog(c.logFunc),
                         Indice:       gestorIndice.ConLog(c.logFunc),
                         GenResumen:   resumen.NuevoGenerador().ConLog(c.logFunc).ConDirResumen(dirResumenes),
+                        Tracker:      tracker.NuevoTracker(20).ConLog(c.logFunc),
                         // Nuevos componentes Fase 3.5:
                         Parser:       arbol_ast.NuevoParser(),
                         Grafo:        grafo.NuevoGrafo(),

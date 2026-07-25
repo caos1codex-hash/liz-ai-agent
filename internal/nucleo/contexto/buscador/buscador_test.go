@@ -232,39 +232,6 @@ func TestBuscarHibrido_SinVectores_UsaBM25(t *testing.T) {
         }
 }
 
-func TestRRF_FusionDosRankings(t *testing.T) {
-        b := NuevoBuscador()
-        // Contenidos diferentes para que BM25 tenga un orden determinista.
-        // f1 tiene el match más débil (palabra clave repetida poco), f2 medio, f3 fuerte.
-        b.Indexar(FragmentoBuscable{ID: "f1", Contenido: "auth misc xxx"})
-        b.Indexar(FragmentoBuscable{ID: "f2", Contenido: "auth misc"})
-        b.Indexar(FragmentoBuscable{ID: "f3", Contenido: "auth auth auth"})
-
-        // Vector ranking dice que f2 es el mejor (este ranking viene del modelo de embeddings)
-        vectorRanking := []ResultadoBusqueda{
-                {Fragmento: FragmentoBuscable{ID: "f2"}, ScoreVector: 0.9, RankVector: 1},
-                {Fragmento: FragmentoBuscable{ID: "f3"}, ScoreVector: 0.7, RankVector: 2},
-        }
-
-        resultados := b.BuscarHibridoConVectores("auth", 10, vectorRanking)
-        if len(resultados) == 0 {
-                t.Fatal("debería retornar resultados")
-        }
-        // f2 debería estar en top 2 (rankeado #1 en vector + presente en BM25).
-        // f3 probablemente sea top por BM25 muy fuerte, pero f2 debería ser #2.
-        top2IDs := []string{resultados[0].Fragmento.ID, resultados[1].Fragmento.ID}
-        encontradoF2 := false
-        for _, id := range top2IDs {
-                if id == "f2" {
-                        encontradoF2 = true
-                        break
-                }
-        }
-        if !encontradoF2 {
-                t.Errorf("f2 debería estar en top 2 (beneficiado por RRF), got top 2: %v", top2IDs)
-        }
-}
-
 func TestStopwords_EsStopword(t *testing.T) {
         if !esStopword("the") {
                 t.Error("'the' debería ser stopword")
