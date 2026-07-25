@@ -14,6 +14,7 @@ import (
 
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/config"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto"
+        "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/herramientas/auto_creacion"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/herramientas/registro"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/logger"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/memoria"
@@ -62,6 +63,7 @@ type Servidor struct {
         gestorMem   *memoria.Gestor          // opcional, se inyecta en Fase 3.5+ (memoria conversacional)
         orquestador *orquestador.Orquestador // opcional, se inyecta en Fase 4
         catalogo    *registro.Catalogo       // opcional, se inyecta en Fase 5 (herramientas)
+        autoGestor  *auto_creacion.Gestor    // opcional, se inyecta en Fase 6 (auto-creación)
         log         *logger.Logger
         inicio      time.Time
 }
@@ -165,6 +167,9 @@ func (s *Servidor) registrarRutas() {
 
         // --- Herramientas (Fase 5) ---
         s.registrarRutasHerramientas()
+
+        // --- Auto-creación de herramientas (Fase 6) ---
+        s.registrarRutasFase6()
 
         // --- Stubs fases futuras ---
         s.router.HandleFunc("/api/v1/modelos", s.handlerStub("modelos")).Methods("GET", "OPTIONS")

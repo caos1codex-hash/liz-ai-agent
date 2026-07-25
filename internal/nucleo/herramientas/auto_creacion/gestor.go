@@ -105,6 +105,28 @@ func (g *Gestor) LLMDisponible() bool {
         return g.detector != nil && g.generador != nil
 }
 
+// Detector retorna el detector subyacente (para uso desde el handler /detectar).
+// Retorna nil si el LLM no está configurado.
+func (g *Gestor) Detector() *Detector {
+        return g.detector
+}
+
+// Generador retorna el generador subyacente.
+// Retorna nil si el LLM no está configurado.
+func (g *Gestor) Generador() *Generador {
+        return g.generador
+}
+
+// Registro retorna el registro persistente subyacente.
+func (g *Gestor) Registro() *Registro {
+        return g.registro
+}
+
+// Compilador retorna el compilador subyacente.
+func (g *Gestor) Compilador() *Compilador {
+        return g.compilador
+}
+
 // ============================================================================
 // Crear — flujo completo
 // ============================================================================
