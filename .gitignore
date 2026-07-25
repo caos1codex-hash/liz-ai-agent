@@ -1,0 +1,28 @@
+# Binarios
+/liz
+bin/
+*.exe
+
+# Go
+vendor/
+
+# Configuracion con secrets
+configs/liz-local.yaml
+
+# Frontend
+web/node_modules/
+web/dist/
+web/.vite/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Liz runtime data
+*.log
