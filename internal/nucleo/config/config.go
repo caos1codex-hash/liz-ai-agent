@@ -1,577 +1,902 @@
 package config
 
 import (
-        "encoding/json"
-        "fmt"
-        "net/url"
-        "os"
-        "path/filepath"
-        "strings"
-        "sync"
-        "time"
+	"fmt"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strconv"
+	"strings"
+	"sync"
 
-        "gopkg.in/yaml.v3"
+	"gopkg.in/yaml.v3"
 )
 
-// ═══════════════════════════════════════════════════════
-// TIPOS DE CONFIGURACIÓN
-// ═══════════════════════════════════════════════════════
+// ============================================================================
+// Tipos de Configuración
+// ============================================================================
 
-// ModeloNVIDIA representa la configuración de un modelo de IA disponible.
-type ModeloNVIDIA struct {
-        ID        string   `yaml:"id" json:"id"`
-        Nombre    string   `yaml:"nombre" json:"nombre"`
-        Tipo      []string `yaml:"tipo" json:"tipo"`
-        Velocidad string   `yaml:"velocidad" json:"velocidad"`
-        Prioridad int      `yaml:"prioridad" json:"prioridad"`
+// ConfiguracionModelo define la configuración de un modelo de IA individual.
+// Cada modelo puede tener sus propios parámetros de temperatura, top-p,
+// límite de tokens y reglas de uso específicas.
+type ConfiguracionModelo struct {
+	Nombre    string  `yaml:"nombre" json:"nombre"`
+	Proveedor string  `yaml:"proveedor" json:"proveedor"`
+	APIKey    string  `yaml:"api_key" json:"api_key,omitempty"`
+	URL       string  `yaml:"url" json:"url"`
+	Temperatura float64 `yaml:"temperatura" json:"temperatura"`
+	TopP      float64 `yaml:"top_p" json:"top_p"`
+	MaxTokens int     `yaml:"max_tokens" json:"max_tokens"`
+	Rol       string  `yaml:"rol" json:"rol"` // "principal", "reserva", "especializado"
+	Habilitado bool   `yaml:"habilitado" json:"habilitado"`
 }
 
-// ConfigNVIDIA contiene la configuración de la API de NVIDIA.
-type ConfigNVIDIA struct {
-        APIKey   string         `yaml:"api_key" json:"-"` // nunca exponer en JSON
-        Endpoint string         `yaml:"endpoint" json:"endpoint"`
-        Modelos  []ModeloNVIDIA `yaml:"modelos" json:"modelos"`
+// ConfiguracionHerramienta define los parámetros de una herramienta externa.
+// Incluye el tipo de herramienta, su ruta/comando, timeout y si está habilitada.
+type ConfiguracionHerramienta struct {
+	Nombre     string `yaml:"nombre" json:"nombre"`
+	Tipo       string `yaml:"tipo" json:"tipo"`       // "ejecutable", "api", "script"
+	Ruta       string `yaml:"ruta" json:"ruta"`
+	Timeout    int    `yaml:"timeout" json:"timeout"`  // en segundos
+	Habilitado bool   `yaml:"habilitado" json:"habilitado"`
 }
 
-// ConfigServidor contiene la configuración del servidor HTTP.
-type ConfigServidor struct {
-        Puerto int    `yaml:"puerto" json:"puerto"`
-        Host   string `yaml:"host" json:"host"`
+// ConfiguracionSeguridad define las políticas de seguridad del sistema.
+// Incluye límites de frecuencia, sandboxing y restricciones de red.
+type ConfiguracionSeguridad struct {
+	SandboxHabilitado bool `yaml:"sandbox_habilitado" json:"sandbox_habilitado"`
+	MaxPeticionesMin  int  `yaml:"max_peticiones_min" json:"max_peticiones_min"`
+	MaxTokensSesion   int  `yaml:"max_tokens_sesion" json:"max_tokens_sesion"`
+	PermitirRed       bool `yaml:"permitir_red" json:"permitir_red"`
+	PermitirSistema   bool `yaml:"permitir_sistema" json:"permitir_sistema"`
 }
 
-// ConfigPermisos contiene la configuración del sistema de permisos.
-type ConfigPermisos struct {
-        SolicitarAlIniciar    bool `yaml:"solicitar_al_iniciar" json:"solicitar_al_iniciar"`
-        RecordarEntreSesiones bool `yaml:"recordar_entre_sesiones" json:"recordar_entre_sesiones"`
+// ConfiguracionLogging define los parámetros de registro del sistema.
+// Permite configurar el nivel, formato y si se muestra en stdout.
+type ConfiguracionLogging struct {
+	Nivel     string `yaml:"nivel" json:"nivel"`     // "debug", "info", "advertencia", "error", "silencio"
+	Archivo   string `yaml:"archivo" json:"archivo"`
+	Stdout    bool   `yaml:"stdout" json:"stdout"`
+	Rotacion  bool   `yaml:"rotacion" json:"rotacion"`
+	MaxMB     int    `yaml:"max_mb" json:"max_mb"`
+	MaxArchivos int  `yaml:"max_archivos" json:"max_archivos"`
 }
 
-// Configuracion es la configuración completa de Liz.
+// ConfiguracionContexto define los parámetros del sistema de contexto.
+// Controla la estrategia de carga, límites y el catálogo de contexto.
+type ConfiguracionContexto struct {
+	Estrategia       string `yaml:"estrategia" json:"estrategia"`           // "bajo_demanda", "eager", "hibrido"
+	MaxArchivos      int    `yaml:"max_archivos" json:"max_archivos"`
+	MaxLineas        int    `yaml:"max_lineas" json:"max_lineas"`
+	TamanoContexto   int    `yaml:"tamano_contexto" json:"tamano_contexto"` // tokens máximos
+	ResumenAuto      bool   `yaml:"resumen_auto" json:"resumen_auto"`
+	CatalogoHabilitado bool `yaml:"catalogo_habilitado" json:"catalogo_habilitado"`
+}
+
+// Configuracion contiene toda la configuración del agente Liz.
+// Es el tipo raíz que se serializa/deserializa desde YAML.
 type Configuracion struct {
-        Version          string         `yaml:"version" json:"version"`
-        Servidor         ConfigServidor `yaml:"servidor" json:"servidor"`
-        NVIDIA           ConfigNVIDIA   `yaml:"nvidia" json:"nvidia"`
-        DirectorioTrabajo string         `yaml:"directorio_trabajo" json:"directorio_trabajo"`
-        Tema             string         `yaml:"tema" json:"tema"`
-        Permisos         ConfigPermisos `yaml:"permisos" json:"permisos"`
+	Puerto     int                    `yaml:"puerto" json:"puerto"`
+	Host       string                 `yaml:"host" json:"host"`
+	Nombre     string                 `yaml:"nombre" json:"nombre"`
+	Version    string                 `yaml:"version" json:"version"`
+	Modelos    []ConfiguracionModelo    `yaml:"modelos" json:"modelos"`
+	Herramientas []ConfiguracionHerramienta `yaml:"herramientas" json:"herramientas"`
+	Seguridad  ConfiguracionSeguridad  `yaml:"seguridad" json:"seguridad"`
+	Logging    ConfiguracionLogging    `yaml:"logging" json:"logging"`
+	Contexto   ConfiguracionContexto   `yaml:"contexto" json:"contexto"`
+	DirectorioBase string              `yaml:"directorio_base" json:"directorio_base"`
 }
 
-// ═══════════════════════════════════════════════════════
-// VALIDACIONES
-// ═══════════════════════════════════════════════════════
-
-// Temas validos para la UI.
-var temasValidos = map[string]bool{
-        "oscuro": true, "claro": true, "auto": true,
-}
-
-// Velocidades validas para modelos.
-var velocidadesValidas = map[string]bool{
-        "alta": true, "media": true, "lenta": true,
-}
-
-// Tipos de tarea validos para modelos.
-var tiposTareaValidos = map[string]bool{
-        "razonamiento": true, "complejo": true, "codigo": true, "general": true,
-        "analisis": true, "rapido": true, "creatividad": true, "eficiente": true,
-        "contexto_largo": true, "resumen": true, "especializado": true, "potente": true,
-}
-
-// Errores de validación.
-var (
-        ErrPuertoInvalido     = fmt.Errorf("puerto debe estar entre 1 y 65535")
-        ErrHostInvalido        = fmt.Errorf("host no puede estar vacío")
-        ErrTemaInvalido        = fmt.Errorf("tema debe ser 'oscuro', 'claro' o 'auto'")
-        ErrEndpointInvalido    = fmt.Errorf("endpoint NVIDIA debe ser una URL válida (https://)")
-        ErrDirectorioInvalido  = fmt.Errorf("directorio_trabajo no puede estar vacío")
-        ErrModeloSinID        = fmt.Errorf("modelo debe tener un 'id' no vacío")
-        ErrModeloSinNombre     = fmt.Errorf("modelo debe tener un 'nombre' no vacío")
-        ErrModeloTipoInvalido = fmt.Errorf("tipo de modelo no reconocido")
-        ErrModeloVelInvalida   = fmt.Errorf("velocidad de modelo debe ser 'alta', 'media' o 'lenta'")
-)
-
-// Validar realiza todas las validaciones de la configuración.
-// Retorna una lista de errores. Vacía significa que todo es válido.
-func (c *Configuracion) Validar() []error {
-        var errores []error
-
-        // Servidor
-        if c.Servidor.Puerto < 1 || c.Servidor.Puerto > 65535 {
-                errores = append(errores, ErrPuertoInvalido)
-        }
-        if strings.TrimSpace(c.Servidor.Host) == "" {
-                errores = append(errores, ErrHostInvalido)
-        }
-
-        // Tema
-        if !temasValidos[c.Tema] {
-                errores = append(errores, ErrTemaInvalido)
-        }
-
-        // Directorio de trabajo
-        if strings.TrimSpace(c.DirectorioTrabajo) == "" {
-                errores = append(errores, ErrDirectorioInvalido)
-        }
-
-        // NVIDIA
-        if c.NVIDIA.Endpoint != "" {
-                if u, err := url.Parse(c.NVIDIA.Endpoint); err != nil || u.Scheme != "https" {
-                        errores = append(errores, ErrEndpointInvalido)
-                }
-        }
-
-        for i, m := range c.NVIDIA.Modelos {
-                if strings.TrimSpace(m.ID) == "" {
-                        errores = append(errores, fmt.Errorf("modelo[%d]: %w", i, ErrModeloSinID))
-                }
-                if strings.TrimSpace(m.Nombre) == "" {
-                        errores = append(errores, fmt.Errorf("modelo[%d]: %w", i, ErrModeloSinNombre))
-                }
-                for _, tipo := range m.Tipo {
-                        if !tiposTareaValidos[tipo] {
-                                errores = append(errores, fmt.Errorf("modelo[%d] '%s': %w (%s)", i, m.ID, ErrModeloTipoInvalido, tipo))
-                        }
-                }
-                if !velocidadesValidas[m.Velocidad] {
-                        errores = append(errores, fmt.Errorf("modelo[%d] '%s': %w (%s)", i, m.ID, ErrModeloVelInvalida, m.Velocidad))
-                }
-        }
-
-        return errores
-}
-
-// ═══════════════════════════════════════════════════════
-// GESTOR DE CONFIGURACIÓN (thread-safe con persistencia)
-// ═══════════════════════════════════════════════════════
-
-// Gestor es el gestor thread-safe de la configuración de Liz.
-// Maneja la configuración activa, el archivo de origen, y la persistencia.
-type Gestor struct {
-        mu          sync.RWMutex
-        config      *Configuracion
-        rutaOrigen  string // ruta del archivo YAML cargado (vacío si solo defaults)
-        rutaActiva  string // ruta de ~/.liz/config.json (config activa con overrides)
-        logFunc     func(string, ...interface{}) // inyectable para testing
-}
-
-// Config es la instancia global del gestor de configuración.
-var GestorGlobal *Gestor
-
-// Rutas de configuración que se buscan en orden de prioridad.
-var rutasConfig = []string{
-        "liz.yaml",
-        "configs/liz.yaml",
-}
-
-// archivoConfig es el wrapper YAML que contiene la configuración de Liz.
+// archivoConfig es un wrapper para soportar el formato YAML
+// donde toda la configuración está bajo la clave raíz "liz:".
 type archivoConfig struct {
-        Liz *Configuracion `yaml:"liz"`
+	Liz *Configuracion `yaml:"liz"`
 }
 
-// parsearYAML lee datos YAML y los parsea en una Configuracion.
-// Soporta tanto el formato con wrapper "liz:" como sin él.
-func parsearYAML(datos []byte, cfg *Configuracion) error {
-        var wrapper archivoConfig
-        if err := yaml.Unmarshal(datos, &wrapper); err == nil && wrapper.Liz != nil {
-                *cfg = *wrapper.Liz
-                return nil
-        }
-        return yaml.Unmarshal(datos, cfg)
+// CambioConfiguracion representa un cambio individual en la configuración.
+// Se usa para tracking de auditoría y para la funcionalidad de hot-reload.
+type CambioConfiguracion struct {
+	Ruta      string      `json:"ruta"`
+	ValorAnterior interface{} `json:"valor_anterior"`
+	ValorNuevo  interface{} `json:"valor_nuevo"`
+	Timestamp  string      `json:"timestamp"`
 }
 
-// NuevoGestor crea un nuevo gestor de configuración.
-// Carga la config desde YAML, aplica env vars, valida, y la prepara para uso.
-func NuevoGestor(logFn func(string, ...interface{})) (*Gestor, error) {
-        if logFn == nil {
-                logFn = func(string, ...interface{}) {} // noop
-        }
+// ============================================================================
+// Gestor de Configuración (Thread-Safe Singleton)
+// ============================================================================
 
-        home, err := os.UserHomeDir()
-        if err != nil {
-                return nil, fmt.Errorf("error obteniendo directorio home: %w", err)
-        }
-
-        g := &Gestor{
-                rutaActiva: filepath.Join(home, ".liz", "config.json"),
-                logFunc:    logFn,
-        }
-
-        // 1. Buscar y cargar archivo YAML
-        var rutaEncontrada string
-        for _, ruta := range rutasConfig {
-                if _, err := os.Stat(ruta); err == nil {
-                        rutaEncontrada = ruta
-                                break
-                }
-        }
-
-        cfg := ConfiguracionPorDefecto()
-
-        if rutaEncontrada != "" {
-                datos, err := os.ReadFile(rutaEncontrada)
-                if err != nil {
-                        return nil, fmt.Errorf("error leyendo configuración %s: %w", rutaEncontrada, err)
-                }
-
-                if err := parsearYAML(datos, cfg); err != nil {
-                        return nil, fmt.Errorf("error parseando YAML %s: %w", rutaEncontrada, err)
-                }
-                g.rutaOrigen = rutaEncontrada
-                g.logFunc("configuración cargada desde %s", rutaEncontrada)
-        } else {
-                g.logFunc("no se encontró liz.yaml, usando configuración por defecto")
-        }
-
-        // 2. Aplicar overrides de ~/.liz/config.json si existe
-        if datos, err := os.ReadFile(g.rutaActiva); err == nil {
-                var overrides Configuracion
-                if json.Unmarshal(datos, &overrides) == nil {
-                        g.aplicarOverrides(cfg, &overrides)
-                        g.logFunc("overrides aplicados desde %s", g.rutaActiva)
-                }
-        }
-
-        // 3. Expandir ~ en directorio de trabajo
-        cfg = expandirHome(cfg)
-
-        // 4. Aplicar variables de entorno (máxima prioridad)
-        cfg = aplicarEnvVars(cfg)
-
-        // 5. Validar
-        if errores := cfg.Validar(); len(errores) > 0 {
-                for _, e := range errores {
-                        g.logFunc("validación: %v", e)
-                }
-                // No es fatal — loguear y continuar con defaults corregidos
-                g.logFunc("advertencia: la configuración tiene %d errores de validación", len(errores))
-        }
-
-        g.config = cfg
-        GestorGlobal = g
-        Config = cfg
-
-        return g, nil
+// Gestor es el gestor central de configuración. Es thread-safe mediante
+// sync.RWMutex y proporciona acceso concurrente a la configuración.
+type Gestor struct {
+	mu          sync.RWMutex
+	config      *Configuracion
+	rutaArchivo string
+	cambios     []CambioConfiguracion
+	validador   *ValidadorConfig
 }
 
-// aplicarOverrides mezcla los overrides no-nulos sobre la configuración base.
-func (g *Gestor) aplicarOverrides(base, overrides *Configuracion) {
-        if overrides.Servidor.Puerto != 0 {
-                base.Servidor.Puerto = overrides.Servidor.Puerto
-        }
-        if overrides.Servidor.Host != "" {
-                base.Servidor.Host = overrides.Servidor.Host
-        }
-        if overrides.Tema != "" {
-                base.Tema = overrides.Tema
-        }
-        if overrides.DirectorioTrabajo != "" {
-                base.DirectorioTrabajo = overrides.DirectorioTrabajo
-        }
-        if overrides.NVIDIA.Endpoint != "" {
-                base.NVIDIA.Endpoint = overrides.NVIDIA.Endpoint
-        }
-        if overrides.NVIDIA.APIKey != "" {
-                base.NVIDIA.APIKey = overrides.NVIDIA.APIKey
-        }
-        if overrides.Permisos.SolicitarAlIniciar != base.Permisos.SolicitarAlIniciar {
-                base.Permisos.SolicitarAlIniciar = overrides.Permisos.SolicitarAlIniciar
-        }
-        if overrides.Permisos.RecordarEntreSesiones != base.Permisos.RecordarEntreSesiones {
-                base.Permisos.RecordarEntreSesiones = overrides.Permisos.RecordarEntreSesiones
-        }
-        if len(overrides.NVIDIA.Modelos) > 0 {
-                base.NVIDIA.Modelos = overrides.NVIDIA.Modelos
-        }
+// Variable global del gestor de configuración.
+var gestorGlobal *Gestor
+
+// ============================================================================
+// Inicialización
+// ============================================================================
+
+// Inicializar crea y configura el gestor global de configuración.
+// Lee el archivo YAML, aplica overrides de variables de entorno,
+// valida la configuración y asegura que los directorios existan.
+// Retorna error si el archivo no existe o es inválido.
+func Inicializar(rutaArchivo string) (*Gestor, error) {
+	cfg, err := Cargar(rutaArchivo)
+	if err != nil {
+		return nil, fmt.Errorf("error al inicializar configuración: %w", err)
+	}
+
+	g := &Gestor{
+		config:      cfg,
+		rutaArchivo: rutaArchivo,
+		cambios:     make([]CambioConfiguracion, 0),
+		validador:   NuevoValidadorConfig(),
+	}
+
+	// Validar la configuración cargada
+	if err := g.validador.Validar(cfg); err != nil {
+		return nil, fmt.Errorf("configuración inválida: %w", err)
+	}
+
+	// Asegurar directorios de runtime
+	if err := cfg.AsegurarDirectorios(); err != nil {
+		return nil, fmt.Errorf("error al crear directorios: %w", err)
+	}
+
+	gestorGlobal = g
+	return g, nil
 }
 
-// expandirHome expande ~ al inicio de directorio_trabajo.
-func expandirHome(cfg *Configuracion) *Configuracion {
-        if cfg.DirectorioTrabajo == "~" || cfg.DirectorioTrabajo == "" {
-                home, _ := os.UserHomeDir()
-                cfg.DirectorioTrabajo = home
-        } else if len(cfg.DirectorioTrabajo) > 0 && cfg.DirectorioTrabajo[0] == '~' {
-                home, _ := os.UserHomeDir()
-                cfg.DirectorioTrabajo = home + cfg.DirectorioTrabajo[1:]
-        }
-        return cfg
+// ObtenerGestor retorna el gestor global de configuración.
+// Retorna nil si no ha sido inicializado.
+func ObtenerGestor() *Gestor {
+	return gestorGlobal
 }
 
-// aplicarEnvVars aplica overrides de variables de entorno (máxima prioridad).
-func aplicarEnvVars(cfg *Configuracion) *Configuracion {
-        if puerto := os.Getenv("LIZ_PUERTO"); puerto != "" {
-                var p int
-                if _, err := fmt.Sscanf(puerto, "%d", &p); err == nil && p > 0 && p < 65536 {
-                        cfg.Servidor.Puerto = p
-                }
-        }
-        if apiKey := os.Getenv("NVIDIA_API_KEY"); apiKey != "" {
-                cfg.NVIDIA.APIKey = apiKey
-        }
-        if host := os.Getenv("LIZ_HOST"); host != "" {
-                cfg.Servidor.Host = host
-        }
-        if tema := os.Getenv("LIZ_TEMA"); temasValidos[tema] {
-                cfg.Tema = tema
-        }
-        return cfg
+// ============================================================================
+// Carga y Persistencia
+// ============================================================================
+
+// Cargar lee y parsea un archivo YAML de configuración.
+// Soporta tanto el formato con wrapper "liz:" como el formato directo.
+// Aplica overrides de variables de entorno después de la carga.
+func Cargar(rutaArchivo string) (*Configuracion, error) {
+	rutaExpandida := expandirHome(rutaArchivo)
+
+	// Si no existe el archivo, usar configuración por defecto
+	if _, err := os.Stat(rutaExpandida); os.IsNotExist(err) {
+		cfg := ConfiguracionPorDefecto()
+		return &cfg, nil
+	}
+
+	// Leer el archivo YAML
+	datos, err := os.ReadFile(rutaExpandida)
+	if err != nil {
+		return nil, fmt.Errorf("error al leer archivo de configuración %s: %w", rutaExpandida, err)
+	}
+
+	// Intentar primero con wrapper "liz:" (formato recomendado)
+	var archivo archivoConfig
+	if err := yaml.Unmarshal(datos, &archivo); err != nil {
+		return nil, fmt.Errorf("error al parsear YAML con wrapper: %w", err)
+	}
+
+	var cfg *Configuracion
+	if archivo.Liz != nil {
+		// Formato con wrapper "liz:"
+		cfg = archivo.Liz
+	} else {
+		// Fallback: formato directo sin wrapper
+		cfg = &Configuracion{}
+		if err := yaml.Unmarshal(datos, cfg); err != nil {
+			return nil, fmt.Errorf("error al parsear YAML directo: %w", err)
+		}
+	}
+
+	// Aplicar valores por defecto para campos vacíos
+	aplicarDefaults(cfg)
+
+	// Aplicar overrides de variables de entorno
+	aplicarOverridesEnv(cfg)
+
+	return cfg, nil
 }
 
-// ═══════════════════════════════════════════════════════
-// MÉTODOS DEL GESTOR
-// ═══════════════════════════════════════════════════════
+// Guardar persiste la configuración actual al archivo YAML.
+// Escribe en formato con wrapper "liz:" y aplica la sangría correcta.
+func (g *Gestor) Guardar() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	return guardarConfiguracion(g.config, g.rutaArchivo)
+}
+
+// guardarConfiguracion es la función interna que escribe la configuración al archivo.
+func guardarConfiguracion(cfg *Configuracion, rutaArchivo string) error {
+	rutaExpandida := expandirHome(rutaArchivo)
+
+	// Asegurar que el directorio existe
+	dir := filepath.Dir(rutaExpandida)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("error al crear directorio de configuración: %w", err)
+	}
+
+	// Crear estructura con wrapper "liz:"
+	archivo := archivoConfig{Liz: cfg}
+
+	datos, err := yaml.Marshal(&archivo)
+	if err != nil {
+		return fmt.Errorf("error al serializar configuración: %w", err)
+	}
+
+	if err := os.WriteFile(rutaExpandida, datos, 0644); err != nil {
+		return fmt.Errorf("error al escribir archivo de configuración: %w", err)
+	}
+
+	return nil
+}
+
+// ============================================================================
+// Acceso a Configuración (Thread-Safe)
+// ============================================================================
 
 // Obtener retorna una copia de la configuración actual.
+// Es thread-safe y no expone el puntero interno.
 func (g *Gestor) Obtener() Configuracion {
-        g.mu.RLock()
-        defer g.mu.RUnlock()
-        return *g.config
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return *g.config
 }
 
-// RutaOrigen retorna la ruta del archivo YAML que se cargó (vacío si solo defaults).
-func (g *Gestor) RutaOrigen() string {
-        g.mu.RLock()
-        defer g.mu.RUnlock()
-        return g.rutaOrigen
+// ObtenerPuerto retorna el puerto configurado.
+func (g *Gestor) ObtenerPuerto() int {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.config.Puerto
 }
 
-// RutaActiva retorna la ruta del archivo de config activa (~/.liz/config.json).
-func (g *Gestor) RutaActiva() string {
-        g.mu.RLock()
-        defer g.mu.RUnlock()
-        return g.rutaActiva
+// ObtenerHost retorna el host configurado.
+func (g *Gestor) ObtenerHost() string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.config.Host
 }
 
-// Modificar aplica cambios parciales a la configuración en runtime y los persiste.
-// Solo modifica los campos no-nulos del parámetro cambios.
-// Valida antes de guardar. Retorna error si la validación falla.
-func (g *Gestor) Modificar(cambios *Configuracion) (*Configuracion, error) {
-        g.mu.Lock()
-        defer g.mu.Unlock()
-
-        // Crear copia con cambios aplicados
-        nueva := *g.config
-
-        if cambios.Servidor.Puerto != 0 {
-                nueva.Servidor.Puerto = cambios.Servidor.Puerto
-        }
-        if cambios.Servidor.Host != "" {
-                nueva.Servidor.Host = cambios.Servidor.Host
-        }
-        if cambios.Tema != "" {
-                nueva.Tema = cambios.Tema
-        }
-        if cambios.DirectorioTrabajo != "" {
-                nueva.DirectorioTrabajo = cambios.DirectorioTrabajo
-        }
-        if cambios.NVIDIA.Endpoint != "" {
-                nueva.NVIDIA.Endpoint = cambios.NVIDIA.Endpoint
-        }
-        if cambios.Permisos.SolicitarAlIniciar != g.config.Permisos.SolicitarAlIniciar {
-                nueva.Permisos.SolicitarAlIniciar = cambios.Permisos.SolicitarAlIniciar
-        }
-        if cambios.Permisos.RecordarEntreSesiones != g.config.Permisos.RecordarEntreSesiones {
-                nueva.Permisos.RecordarEntreSesiones = cambios.Permisos.RecordarEntreSesiones
-        }
-
-        // Expandir home
-        nueva = *expandirHome(&nueva)
-
-        // Validar la nueva configuración
-        if errores := nueva.Validar(); len(errores) > 0 {
-                return nil, fmt.Errorf("validación falló: %v", errores[0])
-        }
-
-        // Persistir a ~/.liz/config.json
-        if err := g.guardar(&nueva); err != nil {
-                return nil, err
-        }
-
-        g.config = &nueva
-        Config = &nueva
-
-        g.logFunc("configuración actualizada y persistida en %s", g.rutaActiva)
-        return &nueva, nil
+// ObtenerNombre retorna el nombre del agente.
+func (g *Gestor) ObtenerNombre() string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.config.Nombre
 }
 
-// GuardarAPIKey guarda la API key de NVIDIA de forma segura (solo en ~/.liz/config.json, nunca en YAML).
-func (g *Gestor) GuardarAPIKey(apiKey string) error {
-        g.mu.Lock()
-        defer g.mu.Unlock()
-
-        if strings.TrimSpace(apiKey) == "" {
-                return fmt.Errorf("API key no puede estar vacía")
-        }
-
-        g.config.NVIDIA.APIKey = apiKey
-        Config = g.config
-
-        return g.guardar(g.config)
+// ObtenerVersion retorna la versión del agente.
+func (g *Gestor) ObtenerVersion() string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.config.Version
 }
 
-// guardar persiste la configuración a ~/.liz/config.json.
-func (g *Gestor) guardar(cfg *Configuracion) error {
-        datos, err := json.MarshalIndent(cfg, "", "  ")
-        if err != nil {
-                return fmt.Errorf("error serializando config: %w", err)
-        }
-
-        // NOTA: la API key se guarda en el JSON de config activa.
-        // Está protegida porque ~/.liz/ tiene permisos 700.
-        if err := os.WriteFile(g.rutaActiva, datos, 0644); err != nil {
-                return fmt.Errorf("error guardando config en %s: %w", g.rutaActiva, err)
-        }
-
-        return nil
+// ObtenerDirectorioBase retorna el directorio base de runtime.
+func (g *Gestor) ObtenerDirectorioBase() string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.config.DirectorioBase
 }
 
-// ═══════════════════════════════════════════════════════
-// ESTADO DE SESIÓN (~/.liz/contexto/sistema/estado/)
-// ═══════════════════════════════════════════════════════
-
-// EstadoSesion representa el estado actual de la sesión de Liz.
-type EstadoSesion struct {
-        SesionID      string    `json:"sesion_id"`
-        Inicio        time.Time `json:"inicio"`
-        Version       string    `json:"version"`
-        PID           int       `json:"pid"`
-        ConfigOrigen  string    `json:"config_origen"`
-        PermisosListos bool     `json:"permisos_listos"`
-        Uptime        string    `json:"uptime,omitempty"`
+// ObtenerModelos retorna la lista de modelos configurados.
+func (g *Gestor) ObtenerModelos() []ConfiguracionModelo {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	copia := make([]ConfiguracionModelo, len(g.config.Modelos))
+	copy(copia, g.config.Modelos)
+	return copia
 }
 
-// GuardarEstadoSesion crea/actualiza el archivo de estado de sesión.
-func GuardarEstadoSesion(sesionID string, cfg *Configuracion) error {
-        home, err := os.UserHomeDir()
-        if err != nil {
-                return err
-        }
-
-        ruta := filepath.Join(home, ".liz", "contexto", "sistema", "estado", "sesion_actual.json")
-
-        estado := EstadoSesion{
-                SesionID:     sesionID,
-                Inicio:       time.Now().UTC(),
-                Version:      cfg.Version,
-                PID:          os.Getpid(),
-                ConfigOrigen: "",
-        }
-
-        if GestorGlobal != nil {
-                estado.ConfigOrigen = GestorGlobal.RutaOrigen()
-        }
-
-        datos, err := json.MarshalIndent(estado, "", "  ")
-        if err != nil {
-                return fmt.Errorf("error serializando estado: %w", err)
-        }
-
-        return os.WriteFile(ruta, datos, 0644)
+// ObtenerModeloHabilitado retorna el primer modelo habilitado de la lista.
+// Si no hay ninguno habilitado, retorna nil.
+func (g *Gestor) ObtenerModeloHabilitado() *ConfiguracionModelo {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	for i := range g.config.Modelos {
+		if g.config.Modelos[i].Habilitado {
+			copia := g.config.Modelos[i]
+			return &copia
+		}
+	}
+	return nil
 }
 
-// GuardarHerramientasRegistradas inicializa el registro de herramientas.
-func GuardarHerramientasRegistradas() error {
-        home, err := os.UserHomeDir()
-        if err != nil {
-                return err
-        }
-
-        ruta := filepath.Join(home, ".liz", "contexto", "sistema", "estado", "herramientas_registradas.json")
-
-        registro := map[string]interface{}{
-                "version":     "0.1.0",
-                "integradas":   []interface{}{},
-                "auto_creadas": []interface{}{},
-                "total":       0,
-                "actualizado":  time.Now().UTC().Format(time.RFC3339),
-        }
-
-        datos, err := json.MarshalIndent(registro, "", "  ")
-        if err != nil {
-                return fmt.Errorf("error serializando registro: %w", err)
-        }
-
-        return os.WriteFile(ruta, datos, 0644)
+// ObtenerHerramientas retorna la lista de herramientas configuradas.
+func (g *Gestor) ObtenerHerramientas() []ConfiguracionHerramienta {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	copia := make([]ConfiguracionHerramienta, len(g.config.Herramientas))
+	copy(copia, g.config.Herramientas)
+	return copia
 }
 
-// ═══════════════════════════════════════════════════════
-// FUNCIONES LEGADO (compatibilidad con Fase 1)
-// ═══════════════════════════════════════════════════════
-
-// Config es la instancia global de configuración (legacy).
-var Config *Configuracion
-
-// Cargar lee y parsea el archivo de configuración YAML.
-// Función legada — usa NuevoGestor para la nueva API.
-func Cargar() (*Configuracion, error) {
-        g, err := NuevoGestor(nil)
-        if err != nil {
-                return nil, err
-        }
-        cfg := g.Obtener()
-        return &cfg, nil
+// ObtenerSeguridad retorna la configuración de seguridad.
+func (g *Gestor) ObtenerSeguridad() ConfiguracionSeguridad {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.config.Seguridad
 }
 
-// CargarDesde carga la configuración desde una ruta específica (para testing).
-func CargarDesde(ruta string) (*Configuracion, error) {
-        datos, err := os.ReadFile(ruta)
-        if err != nil {
-                return nil, fmt.Errorf("error leyendo configuración %s: %w", ruta, err)
-        }
-
-        cfg := ConfiguracionPorDefecto()
-        if err := parsearYAML(datos, cfg); err != nil {
-                return nil, fmt.Errorf("error parseando YAML %s: %w", ruta, err)
-        }
-
-        Config = cfg
-        return cfg, nil
+// ObtenerLogging retorna la configuración de logging.
+func (g *Gestor) ObtenerLogging() ConfiguracionLogging {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.config.Logging
 }
 
-// ConfiguracionPorDefecto retorna la configuración base con valores seguros.
-func ConfiguracionPorDefecto() *Configuracion {
-        return &Configuracion{
-                Version: "0.1.0",
-                Servidor: ConfigServidor{
-                        Puerto: 3000,
-                        Host:   "localhost",
-                },
-                NVIDIA: ConfigNVIDIA{
-                        APIKey:   "",
-                        Endpoint: "https://integrate.api.nvidia.com/v1",
-                        Modelos:  []ModeloNVIDIA{},
-                },
-                DirectorioTrabajo: "~",
-                Tema:             "oscuro",
-                Permisos: ConfigPermisos{
-                        SolicitarAlIniciar:    true,
-                        RecordarEntreSesiones: false,
-                },
-        }
+// ObtenerContexto retorna la configuración del sistema de contexto.
+func (g *Gestor) ObtenerContexto() ConfiguracionContexto {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.config.Contexto
 }
 
-// AsegurarDirectorios crea la estructura de directorios ~/.liz/ necesaria.
-func AsegurarDirectorios() error {
-        home, err := os.UserHomeDir()
-        if err != nil {
-                return fmt.Errorf("error obteniendo directorio home: %w", err)
-        }
+// ============================================================================
+// Modificación de Configuración (Thread-Safe con Auditoría)
+// ============================================================================
 
-        directorios := []string{
-                filepath.Join(home, ".liz"),
-                filepath.Join(home, ".liz", "contexto", "sistema", "estado"),
-                filepath.Join(home, ".liz", "contexto", "sistema", "config"),
-                filepath.Join(home, ".liz", "contexto", "chat", "conversaciones"),
-                filepath.Join(home, ".liz", "contexto", "chat", "preferencias"),
-                filepath.Join(home, ".liz", "contexto", "proyectos"),
-                filepath.Join(home, ".liz", "herramientas", "auto_creadas"),
-                filepath.Join(home, ".liz", "herramientas", "registro", "auto_creadas"),
-                filepath.Join(home, ".liz", "logs"),
-        }
+// Establecer permite modificar un campo de configuración por su ruta dot-notation.
+// Registra el cambio en el historial de auditoría. Valida después de cada cambio.
+// Ejemplo: Establecer("puerto", "8080") o Establecer("seguridad.max_peticiones_min", "100")
+func (g *Gestor) Establecer(ruta, valor string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 
-        for _, dir := range directorios {
-                if err := os.MkdirAll(dir, 0755); err != nil {
-                return fmt.Errorf("error creando directorio %s: %w", dir, err)
-                }
-        }
+	// Obtener el valor anterior antes de modificar
+	valorAnterior := g.obtenerCampo(ruta)
 
-        return nil
+	// Modificar el campo
+	if err := g.establecerCampo(ruta, valor); err != nil {
+		return fmt.Errorf("error al establecer '%s': %w", ruta, err)
+	}
+
+	// Validar la configuración después del cambio
+	if err := g.validador.Validar(g.config); err != nil {
+		// Revertir el cambio
+		_ = g.establecerCampoInterface(ruta, valorAnterior)
+		return fmt.Errorf("cambio rechazado por validación: %w", err)
+	}
+
+	// Registrar el cambio
+	g.cambios = append(g.cambios, CambioConfiguracion{
+		Ruta:         ruta,
+		ValorAnterior: valorAnterior,
+		ValorNuevo:  valor,
+		Timestamp:    timestampActual(),
+	})
+
+	return nil
+}
+
+// EstablecerMultiple permite modificar varios campos de configuración atómicamente.
+// Si algún campo falla la validación, ninguno se aplica.
+func (g *Gestor) EstablecerMultiple(cambios map[string]string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	// Guardar estado actual para rollback
+	configBackup := *g.config
+
+	// Aplicar todos los cambios
+	for ruta, valor := range cambios {
+		if err := g.establecerCampo(ruta, valor); err != nil {
+			*g.config = configBackup
+			return fmt.Errorf("error al establecer '%s': %w", ruta, err)
+		}
+	}
+
+	// Validar toda la configuración resultante
+	if err := g.validador.Validar(g.config); err != nil {
+		*g.config = configBackup
+		return fmt.Errorf("cambios rechazados por validación: %w", err)
+	}
+
+	// Registrar todos los cambios
+	for ruta, valor := range cambios {
+		g.cambios = append(g.cambios, CambioConfiguracion{
+			Ruta:      ruta,
+			ValorNuevo: valor,
+			Timestamp: timestampActual(),
+		})
+	}
+
+	return nil
+}
+
+// ObtenerCambios retorna el historial de cambios de configuración.
+func (g *Gestor) ObtenerCambios() []CambioConfiguracion {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	copia := make([]CambioConfiguracion, len(g.cambios))
+	copy(copia, g.cambios)
+	return copia
+}
+
+// ============================================================================
+// Validación
+// ============================================================================
+
+// Validar ejecuta la validación completa de la configuración actual.
+// Retorna un error si alguna regla es violada.
+func (g *Gestor) Validar() error {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.validador.Validar(g.config)
+}
+
+// ValidarCampo valida un campo individual de configuración.
+func (g *Gestor) ValidarCampo(ruta, valor string) error {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.validador.ValidarCampo(ruta, valor)
+}
+
+// Esquema retorna el esquema de validación para documentación.
+func (g *Gestor) Esquema() EsquemaConfig {
+	return g.validador.ObtenerEsquema()
+}
+
+// ============================================================================
+// Recarga
+// ============================================================================
+
+// Recargar vuelve a leer el archivo de configuración desde disco.
+// Retorna los campos que cambiaron comparando con la configuración actual.
+// Es la base para la funcionalidad de hot-reload (señal SIGHUP).
+func (g *Gestor) Recargar() ([]CambioConfiguracion, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	nuevaCfg, err := Cargar(g.rutaArchivo)
+	if err != nil {
+		return nil, fmt.Errorf("error al recargar configuración: %w", err)
+	}
+
+	// Validar la nueva configuración
+	if err := g.validador.Validar(nuevaCfg); err != nil {
+		return nil, fmt.Errorf("configuración recargada es inválida: %w", err)
+	}
+
+	// Detectar diferencias
+	cambios := compararConfiguraciones(g.config, nuevaCfg)
+
+	// Asegurar directorios con la nueva configuración
+	if err := nuevaCfg.AsegurarDirectorios(); err != nil {
+		return nil, fmt.Errorf("error al asegurar directorios tras recarga: %w", err)
+	}
+
+	g.config = nuevaCfg
+	return cambios, nil
+}
+
+// ============================================================================
+// Métodos Auxiliares de Configuración
+// ============================================================================
+
+// AsegurarDirectorios crea la estructura de directorios necesaria para el runtime.
+// Crea ~/.liz/ y sus subdirectorios si no existen.
+func (c *Configuracion) AsegurarDirectorios() error {
+	dirBase := expandirHome(c.DirectorioBase)
+	directorios := []string{
+		dirBase,
+		filepath.Join(dirBase, "contexto"),
+		filepath.Join(dirBase, "herramientas"),
+		filepath.Join(dirBase, "logs"),
+		filepath.Join(dirBase, "conversaciones"),
+		filepath.Join(dirBase, "permisos"),
+	}
+
+	for _, dir := range directorios {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("error al crear directorio %s: %w", dir, err)
+		}
+	}
+
+	return nil
+}
+
+// RutaArchivoConfig retorna la ruta absoluta al archivo de configuración.
+func (g *Gestor) RutaArchivoConfig() string {
+	return expandirHome(g.rutaArchivo)
+}
+
+// RutaRuntime retorna la ruta absoluta al directorio de runtime.
+func (g *Gestor) RutaRuntime() string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return expandirHome(g.config.DirectorioBase)
+}
+
+// ============================================================================
+// Funciones Internas
+// ============================================================================
+
+// obtenerCampo obtiene el valor de un campo por ruta dot-notation.
+// Retorna el valor como interface{} para permitir cualquier tipo.
+func (g *Gestor) obtenerCampo(ruta string) interface{} {
+	parts := strings.Split(ruta, ".")
+	v := reflect.ValueOf(g.config).Elem()
+
+	for _, part := range parts {
+		for v.Kind() == reflect.Ptr {
+			v = v.Elem()
+		}
+		if v.Kind() != reflect.Struct {
+			return nil
+		}
+		f := v.FieldByName(campoStruct(part))
+		if !f.IsValid() {
+			return nil
+		}
+		v = f
+	}
+	return v.Interface()
+}
+
+// establecerCampo modifica un campo por ruta dot-notation, parseando el valor como string.
+func (g *Gestor) establecerCampo(ruta, valor string) error {
+	parts := strings.Split(ruta, ".")
+	v := reflect.ValueOf(g.config).Elem()
+
+	for i, part := range parts {
+		for v.Kind() == reflect.Ptr {
+			v = v.Elem()
+		}
+		if v.Kind() != reflect.Struct {
+			return fmt.Errorf("campo '%s' no es un struct", strings.Join(parts[:i+1], "."))
+		}
+		nombreCampo := campoStruct(part)
+		f := v.FieldByName(nombreCampo)
+		if !f.IsValid() {
+			return fmt.Errorf("campo '%s' no encontrado en struct", strings.Join(parts[:i+1], "."))
+		}
+
+		// Si es el último campo, asignar el valor
+		if i == len(parts)-1 {
+			return asignarValor(f, valor)
+		}
+
+		v = f
+	}
+	return nil
+}
+
+// establecerCampoInterface asigna un valor interface{} a un campo por ruta.
+// Usado para rollback de cambios.
+func (g *Gestor) establecerCampoInterface(ruta string, valor interface{}) error {
+	if valor == nil {
+		return nil
+	}
+	parts := strings.Split(ruta, ".")
+	v := reflect.ValueOf(g.config).Elem()
+
+	for i, part := range parts {
+		for v.Kind() == reflect.Ptr {
+			v = v.Elem()
+		}
+		nombreCampo := campoStruct(part)
+		f := v.FieldByName(nombreCampo)
+		if !f.IsValid() {
+			return fmt.Errorf("campo no encontrado: %s", strings.Join(parts[:i+1], "."))
+		}
+		if i == len(parts)-1 {
+			refVal := reflect.ValueOf(valor)
+			if f.Type().AssignableTo(refVal.Type()) {
+				f.Set(refVal)
+			}
+			return nil
+		}
+		v = f
+	}
+	return nil
+}
+
+// asignarValor convierte un string al tipo apropiado del campo reflect.Value
+// y lo asigna. Soporta int, float64, string y bool.
+func asignarValor(f reflect.Value, valor string) error {
+	if !f.CanSet() {
+		return fmt.Errorf("campo no es escribible")
+	}
+
+	switch f.Kind() {
+	case reflect.String:
+		f.SetString(valor)
+	case reflect.Int:
+		n, err := strconv.Atoi(valor)
+		if err != nil {
+			return fmt.Errorf("'%s' no es un entero válido: %w", valor, err)
+		}
+		f.SetInt(int64(n))
+	case reflect.Float64:
+		n, err := strconv.ParseFloat(valor, 64)
+		if err != nil {
+			return fmt.Errorf("'%s' no es un número decimal válido: %w", valor, err)
+		}
+		f.SetFloat(n)
+	case reflect.Bool:
+		b, err := strconv.ParseBool(valor)
+		if err != nil {
+			return fmt.Errorf("'%s' no es un booleano válido: %w", valor, err)
+		}
+		f.SetBool(b)
+	default:
+		return fmt.Errorf("tipo de campo '%s' no soportado para asignación dinámica", f.Kind())
+	}
+	return nil
+}
+
+// campoStruct convierte un nombre de campo en snake_case o kebab-case
+// a PascalCase para coincidir con los campos del struct de Go.
+func campoStruct(nombre string) string {
+	parts := strings.Split(nombre, "_")
+	if len(parts) > 1 {
+		for i, part := range parts {
+			if len(part) > 0 {
+				parts[i] = strings.ToUpper(part[:1]) + part[1:]
+			}
+		}
+		return strings.Join(parts, "")
+	}
+
+	parts = strings.Split(nombre, "-")
+	if len(parts) > 1 {
+		for i, part := range parts {
+			if len(part) > 0 {
+				parts[i] = strings.ToUpper(part[:1]) + part[1:]
+			}
+		}
+		return strings.Join(parts, "")
+	}
+
+	return strings.ToUpper(nombre[:1]) + nombre[1:]
+}
+
+// expandirHome reemplaza el prefijo ~ por el directorio home del usuario.
+func expandirHome(ruta string) string {
+	if strings.HasPrefix(ruta, "~/") {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, ruta[2:])
+	}
+	return ruta
+}
+
+// aplicarDefaults establece valores por defecto para campos vacíos o cero.
+// Esto garantiza que la configuración siempre tenga valores sensibles.
+func aplicarDefaults(cfg *Configuracion) {
+	if cfg.Puerto == 0 {
+		cfg.Puerto = 8080
+	}
+	if cfg.Host == "" {
+		cfg.Host = "0.0.0.0"
+	}
+	if cfg.Nombre == "" {
+		cfg.Nombre = "Liz"
+	}
+	if cfg.Version == "" {
+		cfg.Version = "0.1.0"
+	}
+	if cfg.DirectorioBase == "" {
+		cfg.DirectorioBase = "~/.liz"
+	}
+
+	// Defaults de seguridad
+	if cfg.Seguridad.MaxPeticionesMin == 0 {
+		cfg.Seguridad.MaxPeticionesMin = 60
+	}
+	if cfg.Seguridad.MaxTokensSesion == 0 {
+		cfg.Seguridad.MaxTokensSesion = 100000
+	}
+
+	// Defaults de logging
+	if cfg.Logging.Nivel == "" {
+		cfg.Logging.Nivel = "info"
+	}
+	if cfg.Logging.Archivo == "" {
+		cfg.Logging.Archivo = "~/.liz/logs/liz.log"
+	}
+	if cfg.Logging.MaxMB == 0 {
+		cfg.Logging.MaxMB = 50
+	}
+	if cfg.Logging.MaxArchivos == 0 {
+		cfg.Logging.MaxArchivos = 5
+	}
+
+	// Defaults de contexto
+	if cfg.Contexto.Estrategia == "" {
+		cfg.Contexto.Estrategia = "bajo_demanda"
+	}
+	if cfg.Contexto.MaxArchivos == 0 {
+		cfg.Contexto.MaxArchivos = 50
+	}
+	if cfg.Contexto.MaxLineas == 0 {
+		cfg.Contexto.MaxLineas = 5000
+	}
+	if cfg.Contexto.TamanoContexto == 0 {
+		cfg.Contexto.TamanoContexto = 128000
+	}
+}
+
+// aplicarOverridesEnv sobreescribe campos de configuración con variables de entorno.
+// Prioridad: variables de entorno > archivo YAML > valores por defecto.
+func aplicarOverridesEnv(cfg *Configuracion) {
+	if v := os.Getenv("LIZ_PUERTO"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Puerto = n
+		}
+	}
+	if v := os.Getenv("LIZ_HOST"); v != "" {
+		cfg.Host = v
+	}
+	if v := os.Getenv("LIZ_NOMBRE"); v != "" {
+		cfg.Nombre = v
+	}
+	if v := os.Getenv("LIZ_VERSION"); v != "" {
+		cfg.Version = v
+	}
+	if v := os.Getenv("LIZ_DIRECTORIO_BASE"); v != "" {
+		cfg.DirectorioBase = v
+	}
+	if v := os.Getenv("LIZ_NIVEL_LOG"); v != "" {
+		cfg.Logging.Nivel = v
+	}
+	if v := os.Getenv("NVIDIA_API_KEY"); v != "" {
+		// Aplicar a todos los modelos de NVIDIA
+		for i := range cfg.Modelos {
+			if cfg.Modelos[i].Proveedor == "nvidia" {
+				cfg.Modelos[i].APIKey = v
+			}
+		}
+	}
+	if v := os.Getenv("OPENAI_API_KEY"); v != "" {
+		for i := range cfg.Modelos {
+			if cfg.Modelos[i].Proveedor == "openai" {
+				cfg.Modelos[i].APIKey = v
+			}
+		}
+	}
+}
+
+// compararConfiguraciones compara dos configuraciones y retorna los cambios.
+func compararConfiguraciones(antigua, nueva *Configuracion) []CambioConfiguracion {
+	var cambios []CambioConfiguracion
+	ts := timestampActual()
+
+	v1 := reflect.ValueOf(antigua).Elem()
+	v2 := reflect.ValueOf(nueva).Elem()
+	cambios = compararStructs(v1, v2, "", cambios, ts)
+
+	return cambios
+}
+
+// compararStructs compara recursivamente dos structs reflect.Value.
+func compararStructs(v1, v2 reflect.Value, prefijo string, cambios []CambioConfiguracion, ts string) []CambioConfiguracion {
+	t := v1.Type()
+	for i := 0; i < v1.NumField(); i++ {
+		campo := t.Field(i)
+		nombre := campo.Name
+		ruta := nombre
+		if prefijo != "" {
+			ruta = prefijo + "." + nombre
+		}
+
+		f1 := v1.Field(i)
+		f2 := v2.Field(i)
+
+		if f1.Kind() == reflect.Struct {
+			cambios = compararStructs(f1, f2, ruta, cambios, ts)
+		} else if !reflect.DeepEqual(f1.Interface(), f2.Interface()) {
+			cambios = append(cambios, CambioConfiguracion{
+				Ruta:         ruta,
+				ValorAnterior: f1.Interface(),
+				ValorNuevo:  f2.Interface(),
+				Timestamp:    ts,
+			})
+		}
+	}
+	return cambios
+}
+
+// timestampActual retorna el timestamp actual en formato ISO 8601.
+func timestampActual() string {
+	return time.Now().Format("2006-01-02T15:04:05Z07:00")
+}
+
+// ============================================================================
+// Configuración por Defecto
+// ============================================================================
+
+// ConfiguracionPorDefecto retorna una configuración completa con valores
+// sensibles por defecto. Se usa cuando no existe archivo de configuración.
+func ConfiguracionPorDefecto() Configuracion {
+	return Configuracion{
+		Puerto:         8080,
+		Host:           "0.0.0.0",
+		Nombre:         "Liz",
+		Version:        "0.1.0",
+		DirectorioBase: "~/.liz",
+		Modelos: []ConfiguracionModelo{
+			{
+				Nombre:      "claude-3-5-sonnet",
+				Proveedor:   "anthropic",
+				URL:         "https://api.anthropic.com/v1/messages",
+				Temperatura: 0.7,
+				TopP:        0.9,
+				MaxTokens:   8192,
+				Rol:         "principal",
+				Habilitado:  true,
+			},
+			{
+				Nombre:      "gpt-4o",
+				Proveedor:   "openai",
+				URL:         "https://api.openai.com/v1/chat/completions",
+				Temperatura: 0.7,
+				TopP:        0.9,
+				MaxTokens:   8192,
+				Rol:         "reserva",
+				Habilitado:  false,
+			},
+			{
+				Nombre:      "llama-3.1-405b",
+				Proveedor:   "nvidia",
+				URL:         "https://integrate.api.nvidia.com/v1/chat/completions",
+				Temperatura: 0.7,
+				TopP:        0.9,
+				MaxTokens:   8192,
+				Rol:         "reserva",
+				Habilitado:  false,
+			},
+		},
+		Herramientas: []ConfiguracionHerramienta{
+			{
+				Nombre:     "terminal",
+				Tipo:       "ejecutable",
+				Ruta:       "/bin/bash",
+				Timeout:    30,
+				Habilitado: true,
+			},
+			{
+				Nombre:     "navegador",
+				Tipo:       "ejecutable",
+				Ruta:       "python3 -m playwright",
+				Timeout:    60,
+				Habilitado: false,
+			},
+		},
+		Seguridad: ConfiguracionSeguridad{
+			SandboxHabilitado: false,
+			MaxPeticionesMin:  60,
+			MaxTokensSesion:   100000,
+			PermitirRed:       true,
+			PermitirSistema:   true,
+		},
+		Logging: ConfiguracionLogging{
+			Nivel:       "info",
+			Archivo:     "~/.liz/logs/liz.log",
+			Stdout:      true,
+			Rotacion:    true,
+			MaxMB:       50,
+			MaxArchivos: 5,
+		},
+		Contexto: ConfiguracionContexto{
+			Estrategia:         "bajo_demanda",
+			MaxArchivos:        50,
+			MaxLineas:          5000,
+			TamanoContexto:     128000,
+			ResumenAuto:        true,
+			CatalogoHabilitado: true,
+		},
+	}
 }
