@@ -158,6 +158,23 @@ func Inicializar(rutaArchivo string) (*Gestor, error) {
         return g, nil
 }
 
+// NuevoGestorConConfig crea un gestor con una configuración ya construida,
+// sin leer desde disco ni crear directorios. Útil para tests e inyección
+// de dependencias en producción.
+//
+// NO establece el gestor global (usar Inicializar para eso).
+func NuevoGestorConConfig(cfg *Configuracion) *Gestor {
+        if cfg == nil {
+                cfgDef := ConfiguracionPorDefecto()
+                cfg = &cfgDef
+        }
+        return &Gestor{
+                config:    cfg,
+                cambios:   make([]CambioConfiguracion, 0),
+                validador: NuevoValidadorConfig(),
+        }
+}
+
 // ObtenerGestor retorna el gestor global de configuración.
 // Retorna nil si no ha sido inicializado.
 func ObtenerGestor() *Gestor {
