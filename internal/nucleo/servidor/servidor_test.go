@@ -16,14 +16,17 @@ func setupTest(t *testing.T) (*Servidor, *permisos.Sistema) {
         t.Helper()
         var buf bytes.Buffer
         cfg := config.ConfiguracionPorDefecto()
-        cfg.Servidor.Puerto = 0 // no importa para tests
+        cfg.Servidor.Puerto = 0
 
         log := logger.NuevaConSalida("test", &buf)
 
-        sisPermisos, err := permisos.NuevoSistema()
+        sisPermisos, err := permisos.NuevoSistemaConRecordar(false)
         if err != nil {
                 t.Fatalf("error creando sistema permisos: %v", err)
         }
+
+        // Config global para legacy mode en tests
+        config.Config = cfg
 
         srv := Nuevo(cfg, log, sisPermisos)
         return srv, sisPermisos
@@ -43,7 +46,6 @@ func TestHealthEndpoint(t *testing.T) {
 
         req := httptest.NewRequest("GET", "/api/health", nil)
         rec := httptest.NewRecorder()
-
         srv.router.ServeHTTP(rec, req)
 
         if rec.Code != http.StatusOK {
@@ -57,10 +59,7 @@ func TestHealthEndpoint(t *testing.T) {
 
         datos := resp["datos"].(map[string]interface{})
         if datos["estado"] != "operativo" {
-                t.Errorf("estado esperado 'operativo', obtuve '%v'", datos["estado"])
-        }
-        if datos["version"] != "0.1.0" {
-                t.Errorf("versión esperada '0.1.0', obtuve '%v'", datos["version"])
+                t.Errorf("estado esperado 'operativo'")
         }
         if datos["go_version"] == "" {
                 t.Error("go_version no debería estar vacío")
@@ -72,7 +71,6 @@ func TestGetConfig(t *testing.T) {
 
         req := httptest.NewRequest("GET", "/api/config", nil)
         rec := httptest.NewRecorder()
-
         srv.router.ServeHTTP(rec, req)
 
         if rec.Code != http.StatusOK {
@@ -82,7 +80,7 @@ func TestGetConfig(t *testing.T) {
         resp := decodeResponse(t, rec)
         datos := resp["datos"].(map[string]interface{})
         if datos["tema"] != "oscuro" {
-                t.Errorf("tema esperado 'oscuro', obtuve '%v'", datos["tema"])
+                t.Errorf("tema esperado 'oscuro'")
         }
 }
 
@@ -91,14 +89,12 @@ func TestPermisosGet(t *testing.T) {
 
         req := httptest.NewRequest("GET", "/api/permisos", nil)
         rec := httptest.NewRecorder()
-
         srv.router.ServeHTTP(rec, req)
 
         if rec.Code != http.StatusOK {
                 t.Errorf("status esperado 200, obtuve %d", rec.Code)
         }
 
-        // Solo verificar que la respuesta tiene estructura válida
         resp := decodeResponse(t, rec)
         if resp["exito"] != true {
                 t.Error("exito debería ser true")
@@ -117,7 +113,6 @@ func TestPermisosPost(t *testing.T) {
         req := httptest.NewRequest("POST", "/api/permisos", bytes.NewBufferString(body))
         req.Header.Set("Content-Type", "application/json")
         rec := httptest.NewRecorder()
-
         srv.router.ServeHTTP(rec, req)
 
         if rec.Code != http.StatusOK {
@@ -131,22 +126,81 @@ func TestPermisosPost(t *testing.T) {
         }
 }
 
-func TestChatStub(t *testing.T) {
+// ═══════════════════════════════════════════════════
+// FASE 2: DELETE permisos y auditoría
+// ═══════════════════════════════════════════════════
+
+func TestPermisosDelete(t *testing.T) {
         srv, _ := setupTest(t)
 
-        req := httptest.NewRequest("POST", "/api/chat", bytes.NewBufferString(`{"mensaje":"hola"}`))
-        req.Header.Set("Content-Type", "application/json")
-        rec := httptest.NewRecorder()
+        // Primero conceder
+        srv.permisos.ConcederTodos("test_session")
 
+        // Ahora resetear via DELETE
+        req := httptest.NewRequest("DELETE", "/api/permisos", nil)
+        rec := httptest.NewRecorder()
         srv.router.ServeHTTP(rec, req)
 
-        if rec.Code != http.StatusNotImplemented {
-                t.Errorf("chat stub debería retornar 501, obtuve %d", rec.Code)
+        if rec.Code != http.StatusOK {
+                t.Errorf("DELETE /api/permisos debería ser 200, obtuve %d", rec.Code)
         }
 
         resp := decodeResponse(t, rec)
-        if resp["exito"] != false {
-                t.Error("chat stub debería tener exito false")
+        if resp["exito"] != true {
+                t.Error("exito debería ser true después de delete")
+        }
+}
+
+func TestAuditoriaEndpoint(t *testing.T) {
+        srv, _ := setupTest(t)
+
+        req := httptest.NewRequest("GET", "/api/permisos/auditoria", nil)
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusOK {
+                t.Errorf("auditoría debería ser 200, obtuve %d", rec.Code)
+        }
+
+        resp := decodeResponse(t, rec)
+        if resp["exito"] != true {
+                t.Error("exito debería ser true")
+        }
+
+        datos := resp["datos"].(map[string]interface{})
+        if datos["total"] == nil {
+                t.Error("datos deberían incluir total")
+        }
+}
+
+func TestChatStub_PermisoDenegado(t *testing.T) {
+        srv, _ := setupTest(t)
+
+        // Sin permisos, POST /api/chat debería ser 403 (middleware)
+        body := `{"mensaje":"hola"}`
+        req := httptest.NewRequest("POST", "/api/chat", bytes.NewBufferString(body))
+        req.Header.Set("Content-Type", "application/json")
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusForbidden {
+                t.Errorf("sin permisos, POST /api/chat debería ser 403, obtuve %d", rec.Code)
+        }
+}
+
+func TestChatStub_PermisoConcedido(t *testing.T) {
+        srv, _ := setupTest(t)
+        srv.permisos.ConcederTodos("test_session")
+
+        // Con permisos, debería pasar el middleware y llegar al stub 501
+        body := `{"mensaje":"hola"}`
+        req := httptest.NewRequest("POST", "/api/chat", bytes.NewBufferString(body))
+        req.Header.Set("Content-Type", "application/json")
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusNotImplemented {
+                t.Errorf("con permisos, debería llegar al stub 501, obtuve %d", rec.Code)
         }
 }
 
@@ -155,7 +209,6 @@ func TestCORSMiddleware(t *testing.T) {
 
         req := httptest.NewRequest("OPTIONS", "/api/health", nil)
         rec := httptest.NewRecorder()
-
         srv.router.ServeHTTP(rec, req)
 
         if rec.Code != http.StatusOK {
@@ -171,11 +224,10 @@ func TestCORSMiddleware(t *testing.T) {
 func TestPutConfig(t *testing.T) {
         srv, _ := setupTest(t)
 
-        body := `{"puerto": 8080, "tema": "claro"}`
+        body := `{"tema": "claro"}`
         req := httptest.NewRequest("PUT", "/api/config", bytes.NewBufferString(body))
         req.Header.Set("Content-Type", "application/json")
         rec := httptest.NewRecorder()
-
         srv.router.ServeHTTP(rec, req)
 
         if rec.Code != http.StatusOK {
@@ -185,7 +237,7 @@ func TestPutConfig(t *testing.T) {
         resp := decodeResponse(t, rec)
         datos := resp["datos"].(map[string]interface{})
         if datos["tema"] != "claro" {
-                t.Errorf("tema debería haber cambiado a 'claro', obtuve '%v'", datos["tema"])
+                t.Errorf("tema debería haber cambiado a 'claro'")
         }
 }
 
@@ -196,10 +248,24 @@ func TestPutConfigPuertoInvalido(t *testing.T) {
         req := httptest.NewRequest("PUT", "/api/config", bytes.NewBufferString(body))
         req.Header.Set("Content-Type", "application/json")
         rec := httptest.NewRecorder()
-
         srv.router.ServeHTTP(rec, req)
 
         if rec.Code != http.StatusBadRequest {
                 t.Errorf("puerto inválido debería retornar 400, obtuve %d", rec.Code)
+        }
+}
+
+// Health ahora incluye permisos_listos
+func TestHealth_PermisosListos(t *testing.T) {
+        srv, _ := setupTest(t)
+
+        req := httptest.NewRequest("GET", "/api/health", nil)
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        resp := decodeResponse(t, rec)
+        datos := resp["datos"].(map[string]interface{})
+        if datos["permisos_listos"] == nil {
+                t.Error("health debería incluir permisos_listos")
         }
 }

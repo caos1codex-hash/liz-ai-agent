@@ -3,6 +3,7 @@ package config
 import (
         "os"
         "path/filepath"
+        "strings"
         "testing"
 )
 
@@ -40,7 +41,6 @@ liz:
   permisos:
     solicitar_al_iniciar: false
 `
-        // Crear archivo temporal
         tmpDir := t.TempDir()
         ruta := filepath.Join(tmpDir, "test.yaml")
         if err := os.WriteFile(ruta, []byte(contenido), 0644); err != nil {
@@ -76,10 +76,194 @@ func TestCargarDesdeArchivoInexistente(t *testing.T) {
         }
 }
 
+// ═══════════════════════════════════════════════════
+// VALIDACIONES (Fase 2)
+// ═══════════════════════════════════════════════════
+
+func TestValidar_ConfigValida(t *testing.T) {
+        cfg := ConfiguracionPorDefecto()
+        errores := cfg.Validar()
+        if len(errores) > 0 {
+                t.Errorf("config por defecto debería ser válida, obtuve %d errores: %v", len(errores), errores)
+        }
+}
+
+func TestValidar_PuertoInvalido(t *testing.T) {
+        cfg := ConfiguracionPorDefecto()
+        cfg.Servidor.Puerto = 0
+        errores := cfg.Validar()
+        if len(errores) == 0 {
+                t.Error("puerto 0 debería ser inválido")
+        }
+
+        cfg.Servidor.Puerto = 70000
+        errores = cfg.Validar()
+        if len(errores) == 0 {
+                t.Error("puerto 70000 debería ser inválido")
+        }
+}
+
+func TestValidar_TemaInvalido(t *testing.T) {
+        cfg := ConfiguracionPorDefecto()
+        cfg.Tema = "neon"
+        errores := cfg.Validar()
+        encontrado := false
+        for _, e := range errores {
+                if e == ErrTemaInvalido {
+                        encontrado = true
+                }
+        }
+        if !encontrado {
+                t.Error("tema 'neon' debería ser inválido")
+        }
+}
+
+func TestValidar_HostVacio(t *testing.T) {
+        cfg := ConfiguracionPorDefecto()
+        cfg.Servidor.Host = ""
+        errores := cfg.Validar()
+        encontrado := false
+        for _, e := range errores {
+                if e == ErrHostInvalido {
+                        encontrado = true
+                }
+        }
+        if !encontrado {
+                t.Error("host vacío debería ser inválido")
+        }
+}
+
+func TestValidar_EndpointInvalido(t *testing.T) {
+        cfg := ConfiguracionPorDefecto()
+        cfg.NVIDIA.Endpoint = "http://inseguro.com"
+        errores := cfg.Validar()
+        encontrado := false
+        for _, e := range errores {
+                if e == ErrEndpointInvalido {
+                        encontrado = true
+                }
+        }
+        if !encontrado {
+                t.Error("endpoint http:// debería ser inválido (solo https)")
+        }
+}
+
+func TestValidar_ModeloSinID(t *testing.T) {
+        cfg := ConfiguracionPorDefecto()
+        cfg.NVIDIA.Modelos = []ModeloNVIDIA{{ID: "", Nombre: "test"}}
+        errores := cfg.Validar()
+        if len(errores) == 0 {
+                t.Error("modelo sin ID debería ser inválido")
+        }
+}
+
+func TestValidar_ModeloTipoInvalido(t *testing.T) {
+        cfg := ConfiguracionPorDefecto()
+        cfg.NVIDIA.Modelos = []ModeloNVIDIA{
+                {ID: "test/1", Nombre: "Test", Tipo: []string{"no_existe"}, Velocidad: "media"},
+        }
+        errores := cfg.Validar()
+        encontrado := false
+        for _, e := range errores {
+                if strings.Contains(e.Error(), "tipo de modelo no reconocido") {
+                        encontrado = true
+                }
+        }
+        if !encontrado {
+                t.Error("tipo de modelo 'no_existe' debería ser inválido")
+        }
+}
+
+// ═══════════════════════════════════════════════════
+// GESTOR (Fase 2)
+// ═══════════════════════════════════════════════════
+
+func TestGestor_ModificarTema(t *testing.T) {
+        tmpDir := t.TempDir()
+        ruta := filepath.Join(tmpDir, "config.json")
+
+        g := &Gestor{
+                rutaActiva: ruta,
+                config:     ConfiguracionPorDefecto(),
+                logFunc:    func(string, ...interface{}) {},
+        }
+
+        nueva, err := g.Modificar(&Configuracion{Tema: "claro"})
+        if err != nil {
+                t.Fatalf("Modificar() error: %v", err)
+        }
+        if nueva.Tema != "claro" {
+                t.Errorf("tema esperado 'claro', obtuve '%s'", nueva.Tema)
+        }
+
+        // Verificar persistencia
+        datos, _ := os.ReadFile(ruta)
+        if len(datos) == 0 {
+                t.Error("config debió persistirse en archivo")
+        }
+}
+
+func TestGestor_ModificarTemaInvalido(t *testing.T) {
+        tmpDir := t.TempDir()
+        ruta := filepath.Join(tmpDir, "config.json")
+
+        g := &Gestor{
+                rutaActiva: ruta,
+                config:     ConfiguracionPorDefecto(),
+                logFunc:    func(string, ...interface{}) {},
+        }
+
+        _, err := g.Modificar(&Configuracion{Tema: "invalido"})
+        if err == nil {
+                t.Error("debería fallar con tema inválido")
+        }
+}
+
+func TestGestor_ModificarPuertoInvalido(t *testing.T) {
+        tmpDir := t.TempDir()
+        ruta := filepath.Join(tmpDir, "config.json")
+
+        g := &Gestor{
+                rutaActiva: ruta,
+                config:     ConfiguracionPorDefecto(),
+                logFunc:    func(string, ...interface{}) {},
+        }
+
+        _, err := g.Modificar(&Configuracion{Servidor: ConfigServidor{Puerto: 99999}})
+        if err == nil {
+                t.Error("debería fallar con puerto inválido")
+        }
+}
+
+func TestGestor_Obtener(t *testing.T) {
+        g := &Gestor{
+                rutaActiva: "/tmp/test.json",
+                config:     ConfiguracionPorDefecto(),
+                logFunc:    func(string, ...interface{}) {},
+        }
+
+        cfg := g.Obtener()
+        if cfg.Tema != "oscuro" {
+                t.Errorf("tema esperado 'oscuro', obtuve '%s'", cfg.Tema)
+        }
+}
+
+func TestGestor_RutaOrigen(t *testing.T) {
+        g := &Gestor{
+                rutaOrigen: "liz.yaml",
+                rutaActiva: "/tmp/test.json",
+                config:     ConfiguracionPorDefecto(),
+                logFunc:    func(string, ...interface{}) {},
+        }
+
+        if g.RutaOrigen() != "liz.yaml" {
+                t.Errorf("ruta esperada 'liz.yaml', obtuve '%s'", g.RutaOrigen())
+        }
+}
+
 func TestAsegurarDirectorios(t *testing.T) {
         tmpDir := t.TempDir()
 
-        // Crear estructura esperada
         dirs := []string{
                 filepath.Join(tmpDir, ".liz"),
                 filepath.Join(tmpDir, ".liz", "logs"),
@@ -89,11 +273,10 @@ func TestAsegurarDirectorios(t *testing.T) {
 
         for _, dir := range dirs {
                 if err := os.MkdirAll(dir, 0755); err != nil {
-                        t.Fatalf("error creando dir temporal: %v", err)
+                        t.Fatalf("error creando dir: %v", err)
                 }
         }
 
-        // Verificar que existen
         for _, dir := range dirs {
                 info, err := os.Stat(dir)
                 if err != nil {

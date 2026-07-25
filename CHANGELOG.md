@@ -29,6 +29,20 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/).
 - **19 tests unitarios** pasando (logger: 5, config: 4, permisos: 8, servidor: 8)
 - Endpoints stub preparados para fases futuras (tools → Fase 5, orquestador → Fase 4, chat → Fase 7)
 
+### Fase 2 — Permisos y Configuración (completada)
+- **config.Gestor** — Gestor thread-safe con validación completa y persistencia a ~/.liz/config.json
+- **Validación** — Puerto (1-65535), host no vacío, tema (oscuro/claro/auto), endpoint HTTPS, modelo ID/nombre/tipo/velocidad
+- **Persistencia PUT /api/config** — Cambios se guardan y se cargan en el próximo inicio (merge: YAML + overrides + env vars)
+- **Middleware de permisos** — Rutas protegidas retornan 403 sin permisos; `/api/chat` requiere `terminal`, `/api/tools` requiere `sistema`, `/api/conversations` requiere `archivos`
+- **DELETE /api/permisos** — Revoca todos los permisos
+- **GET /api/permisos/auditoria** — Log de verificaciones de permisos con paginación
+- **Revocar permisos individuales** — Método `Revocar(nombre)`
+- **recordar_entre_sesiones** — Si false (default), permisos se limpian al iniciar
+- **~/.liz/contexto/sistema/estado/sesion_actual.json** — Estado de sesión (ID, PID, versión, config origen)
+- **~/.liz/contexto/sistema/estado/herramientas_registradas.json** — Registro de herramientas
+- **Health mejorado** — Incluye `config_origen` y `permisos_listos`
+- **49 tests unitarios** pasando (logger: 5, config: 14, permisos: 18, servidor: 12)
+
 ### Documentacion
 - docs/ARQUITECTURA.md — Documentacion completa del proyecto
 - docs/DECISIONES.md — Registro de 12 decisiones de diseno
@@ -44,7 +58,7 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/).
 | Fase | Nombre | Estado |
 |------|--------|--------|
 | 1 | Nucleo Base | Completada |
-| 2 | Permisos y Configuracion | Pendiente |
+| 2 | Permisos y Configuracion | Completada |
 | 3 | Sistema de Contexto | Pendiente |
 | 4 | Orquestador NVIDIA | Pendiente |
 | 5 | Herramientas Base | Pendiente |
