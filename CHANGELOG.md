@@ -1,5 +1,66 @@
 # Changelog — Liz AI Agent
 
+## [0.4.1] — Fase 4.1: Embeddings nv-embed-v1 + Búsqueda Híbrida Real
+
+> **Activa la búsqueda semántica real. Combina BM25 + vector + RRF
+> usando NVIDIA nv-embed-v1 (1024 dimensiones).**
+
+### Buscador con embeddings (`internal/nucleo/contexto/buscador/embeddings.go`)
+- **Interfaz `EmbeddingsProvider`**: contrato limpio que cualquier provider
+  de embeddings puede implementar (NVIDIA, OpenAI, Jina, etc.). El buscador
+  no depende del paquete orquestador (clean dependency).
+- **`BuscadorEmbeddings`**: extiende `Buscador` con índice vectorial
+  paralelo al BM25. Mantiene todos los métodos heredados + nuevos:
+  - `IndexarConEmbeddings(f)`: indexa en BM25 + genera embedding
+  - `IndexarBatchConEmbeddings(frags)`: batch eficiente (1 llamada API)
+  - `BuscarVector(query, topK)`: similitud coseno contra todos los embeddings
+  - `BuscarHibridoConEmbeddings(query, topK)`: BM25 + vector + RRF
+- **Degradación graceful**: si el provider falla, cae a BM25 puro.
+- **`similitudCoseno`**: implementación stdlib (sin importar math).
+- **`sqrt`**: método de Newton (10 iteraciones, precisión 0.001).
+
+### Provider NVIDIA (`internal/nucleo/orquestador/provider_embeddings.go`)
+- **`ProviderEmbeddingsNVIDIA`**: adapta `ClienteNVIDIA.Embeddings` a la
+  interfaz `buscador.EmbeddingsProvider`.
+- Soporta múltiples modelos: `nv-embed-v1` (1024 dim), `nv-embedqa-e5-v5`
+  (1024), `nv-embedqa-mistral7b-v2` (4096), `snowflake/arctic-embed-l-v2.0`
+  (1024).
+- **`Orquestador.Cliente()`**: expone el cliente NVIDIA para que otros
+  paquetes puedan construir providers.
+- **Compile-time check**: `var _ buscador.EmbeddingsProvider =
+  (*ProviderEmbeddingsNVIDIA)(nil)` garantiza que la interfaz se cumple.
+
+### Tests
+- **369 tests en total** (todos pasando)
+- **+14 tests buscador embeddings**: indexación, batch, búsqueda vectorial,
+  híbrida, degradación graceful, similitud coseno, sqrt
+- **+7 tests provider NVIDIA**: generación exitosa, errores, dimensiones
+  por modelo, integración end-to-end con buscador
+
+### Arquitectura final de búsqueda híbrida
+
+```
+Usuario: "función de autenticación"
+            ↓
+    ┌───────┴───────┐
+    ↓               ↓
+  BM25           Vector
+  (keyword)    (semántico)
+    ↓               ↓
+  rank 1         rank 1
+  rank 2         rank 2
+  rank 3         rank 3
+    ↓               ↓
+    └───────┬───────┘
+            ↓
+     Reciprocal Rank Fusion
+     (k=60)
+            ↓
+     Ranking unificado
+```
+
+---
+
 ## [0.4.0] — Fase 4: Orquestador Multi-Modelo NVIDIA + Memoria Conversacional
 
 > **Liz ahora puede conversar y recordar. Combina memoria de código

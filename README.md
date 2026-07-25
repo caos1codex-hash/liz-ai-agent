@@ -5,7 +5,7 @@
 
 ![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8)
 ![Phase](https://img.shields.io/badge/fase-4%20de%2010-orange)
-![Tests](https://img.shields.io/badge/tests-342%20pasando-brightgreen)
+![Tests](https://img.shields.io/badge/tests-369%20pasando-brightgreen)
 
 ## Que hace Liz?
 
@@ -134,7 +134,7 @@ con seleccion inteligente + fallback automatico + metricas:
   intenta el siguiente en la cadena
 - **Metricas**: exitos, fallos, tasa de exito, latencia promedio por modelo
 - **Streaming SSE**: respuesta progresiva via Server-Sent Events
-- **Embeddings**: stub para nv-embed-v1 (integracion con buscador en Fase 4.1)
+- **Embeddings**: integración real con `nv-embed-v1` (1024 dim) vía `ProviderEmbeddingsNVIDIA` — búsqueda híbrida BM25 + vector + RRF
 
 ```
 GET  /api/v1/orquestador                  # estado
