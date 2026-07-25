@@ -1,0 +1,65 @@
+# ============================================
+# Configuracion de Liz AI Agent
+# ============================================
+# Copia este archivo a liz.yaml y configura tus valores
+# NUNCA compartas este archivo con API keys reales
+
+liz:
+  version: "0.1.0"
+  
+  servidor:
+    puerto: 3000
+    host: "localhost"
+  
+  nvidia:
+    # Tu API key de NVIDIA
+    api_key: "nvapi-TU_API_KEY_AQUI"
+    endpoint: "https://integrate.api.nvidia.com/v1"
+    modelos:
+      - id: "meta/llama-3.1-405b-instruct"
+        nombre: "Llama 3.1 405B"
+        tipo: ["razonamiento", "complejo"]
+        velocidad: "lenta"
+        prioridad: 1
+      - id: "meta/llama-3.1-70b-instruct"
+        nombre: "Llama 3.1 70B"
+        tipo: ["codigo", "general"]
+        velocidad: "media"
+        prioridad: 2
+      - id: "mistralai/mixtral-8x22b-instruct-v0.1"
+        nombre: "Mixtral 8x22B"
+        tipo: ["analisis", "rapido"]
+        velocidad: "alta"
+        prioridad: 3
+      - id: "nvidia/nemotron-4-340b-instruct"
+        nombre: "Nemotron 340B"
+        tipo: ["creatividad", "razonamiento"]
+        velocidad: "media"
+        prioridad: 4
+      - id: "google/gemma-2-27b-it"
+        nombre: "Gemma 2 27B"
+        tipo: ["general", "eficiente"]
+        velocidad: "alta"
+        prioridad: 5
+      - id: "microsoft/phi-3-medium-128k-instruct"
+        nombre: "Phi-3 Medium"
+        tipo: ["contexto_largo", "resumen"]
+        velocidad: "media"
+        prioridad: 6
+      - id: "meta/codellama-70b-instruct"
+        nombre: "CodeLlama 70B"
+        tipo: ["codigo", "especializado"]
+        velocidad: "media"
+        prioridad: 7
+      - id: "nvidia/llama-3.1-nemotron-70b-instruct"
+        nombre: "Nemotron 70B"
+        tipo: ["general", "potente"]
+        velocidad: "media"
+        prioridad: 8
+  
+  directorio_trabajo: "~"
+  tema: "oscuro"
+  
+  permisos:
+    solicitar_al_iniciar: true
+    recordar_entre_sesiones: false
