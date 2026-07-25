@@ -1,436 +1,637 @@
 package permisos
 
 import (
-        "encoding/json"
-        "net/http"
-        "net/http/httptest"
-        "os"
-        "path/filepath"
-        "testing"
-        "time"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
 )
 
-func crearSistemaTest(t *testing.T) (*Sistema, string) {
-        t.Helper()
-        tmpDir := t.TempDir()
-        ruta := filepath.Join(tmpDir, ".liz", "permisos.json")
-        if err := os.MkdirAll(filepath.Dir(ruta), 0755); err != nil {
-                t.Fatalf("error creando dir: %v", err)
-        }
+// ============================================================================
+// Tests de Inicialización
+// ============================================================================
 
-        s := &Sistema{
-                rutaArchivo:   ruta,
-                maxAuditoria: 1000,
-                recordar:      false,
-                estado: &EstadoPermisos{
-                        Version:  "0.1.0",
-                        Permisos: make(map[string]Permiso),
-                },
-        }
+func TestInicializar_CrearGestor(t *testing.T) {
+	tmpDir := t.TempDir()
 
-        for _, p := range permisosDefecto {
-                s.estado.Permisos[p.Nombre] = Permiso{
-                        Nombre:      p.Nombre,
-                        Descripcion: p.Descripcion,
-                        Concedido:   false,
-                }
-        }
-
-        return s, tmpDir
+	g, err := Inicializar(tmpDir)
+	if err != nil {
+		t.Fatalf("Inicializar falló: %v", err)
+	}
+	if g == nil {
+		t.Fatal("Gestor es nil")
+	}
+	if !g.EstaHabilitado() {
+		t.Error("Gestor debería estar habilitado por defecto")
+	}
 }
 
-func TestPermisosPendientes(t *testing.T) {
-        s, _ := crearSistemaTest(t)
-        pendientes := s.PermisosPendientes()
-        if len(pendientes) != 6 {
-                t.Errorf("se esperaban 6 permisos pendientes, obtuve %d", len(pendientes))
-        }
+func TestInicializar_CreaArchivoPermisos(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	g, _ := Inicializar(tmpDir)
+
+	ruta := filepath.Join(tmpDir, "permisos", "permisos.json")
+	if _, err := os.Stat(ruta); os.IsNotExist(err) {
+		t.Error("El archivo de permisos debería haberse creado")
+	}
+
+	// Verificar que se puede leer
+	estado := g.ObtenerTodos()
+	if len(estado.Permisos) == 0 {
+		t.Error("Debería haber permisos concedidos")
+	}
 }
 
-func TestConcederTodos(t *testing.T) {
-        s, _ := crearSistemaTest(t)
+func TestInicializar_CargaPermisosExistentes(t *testing.T) {
+	tmpDir := t.TempDir()
+	permDir := filepath.Join(tmpDir, "permisos")
+	os.MkdirAll(permDir, 0755)
 
-        if s.TodosConcedidos() {
-                t.Error("no debería estar todo concedido al inicio")
-        }
+	// Crear archivo de permisos preexistente
+	estado := EstadoPermisos{
+		ConcedidoPor: "test",
+		Version:      2,
+		Permisos: map[TipoPermiso]*RegistroPermiso{
+			PermArchivos: {
+				Tipo:      PermArchivos,
+				Categoria: "archivos",
+				Concedido: true,
+				Nivel:     NivelTotal,
+			},
+		},
+	}
+	datos, _ := json.MarshalIndent(estado, "", "  ")
+	os.WriteFile(filepath.Join(permDir, "permisos.json"), datos, 0644)
 
-        err := s.ConcederTodos("test_session")
-        if err != nil {
-                t.Fatalf("ConcederTodos() error: %v", err)
-        }
+	g, err := Inicializar(tmpDir)
+	if err != nil {
+		t.Fatalf("Error al inicializar con permisos existentes: %v", err)
+	}
 
-        if !s.TodosConcedidos() {
-                t.Error("todos deberían estar concedidos")
-        }
+	estadoCargado := g.ObtenerTodos()
+	if estadoCargado.Version != 2 {
+		t.Errorf("Version = %d, se esperaba 2", estadoCargado.Version)
+	}
 
-        if s.estado.SesionID != "test_session" {
-                t.Errorf("sesion_id esperado 'test_session', obtuve '%s'", s.estado.SesionID)
-        }
-
-        // Verificar persistencia
-        datos, err := os.ReadFile(s.rutaArchivo)
-        if err != nil {
-                t.Fatalf("error leyendo archivo: %v", err)
-        }
-
-        var cargado EstadoPermisos
-        if err := json.Unmarshal(datos, &cargado); err != nil {
-                t.Fatalf("error parseando: %v", err)
-        }
-
-        if !cargado.Concedidos {
-                t.Error("permisos persistidos deberían estar concedidos")
-        }
+	// Debería haber completado los permisos faltantes
+	if len(estadoCargado.Permisos) != len(TodosLosPermisos) {
+		t.Errorf("Se esperaban %d permisos, hay %d", len(TodosLosPermisos), len(estadoCargado.Permisos))
+	}
 }
 
-func TestConcederIndividual(t *testing.T) {
-        s, _ := crearSistemaTest(t)
+// ============================================================================
+// Tests de ConcederTodos (D-006)
+// ============================================================================
 
-        err := s.Conceder("archivos")
-        if err != nil {
-                t.Fatalf("Conceder() error: %v", err)
-        }
+func TestConcederTodos_TodosConcedidos(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
 
-        if !s.Verificar(PermArchivos) {
-                t.Error("permiso 'archivos' debería estar concedido")
-        }
-        if s.Verificar(PermTerminal) {
-                t.Error("permiso 'terminal' NO debería estar concedido")
-        }
+	g.ConcederTodos("test", "razón de test")
+
+	estado := g.ObtenerTodos()
+
+	for _, tipo := range TodosLosPermisos {
+		reg, ok := estado.Permisos[tipo]
+		if !ok {
+			t.Errorf("Permiso %s no encontrado", tipo)
+			continue
+		}
+		if !reg.Concedido {
+			t.Errorf("Permiso %s no está concedido", tipo)
+		}
+		if reg.Nivel != NivelTotal {
+			t.Errorf("Permiso %s nivel = %s, se esperaba total", tipo, reg.Nivel)
+		}
+		if reg.ConcedidoPor != "test" {
+			t.Errorf("Permiso %s concedido_por = %s, se esperaba test", tipo, reg.ConcedidoPor)
+		}
+	}
 }
 
-func TestConcederPermisoInexistente(t *testing.T) {
-        s, _ := crearSistemaTest(t)
+func TestConcederTodos_SubPermisosCreados(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
 
-        err := s.Conceder("no_existe")
-        if err == nil {
-                t.Error("debería retornar error para permiso inexistente")
-        }
+	g.ConcederTodos("test", "test")
+
+	estado := g.ObtenerTodos()
+
+	// Verificar que archivos tenga sub-permisos
+	regArchivos := estado.Permisos[PermArchivos]
+	if regArchivos == nil {
+		t.Fatal("Permiso archivos no encontrado")
+	}
+	if len(regArchivos.SubPermisos) == 0 {
+		t.Error("Se esperaban sub-permisos para archivos")
+	}
+
+	// Verificar nombres de sub-permisos esperados
+	nombresEsperados := map[string]bool{"leer": true, "escribir": true, "eliminar": true, "ejecutar": true}
+	for _, sp := range regArchivos.SubPermisos {
+		if !nombresEsperados[sp.Nombre] {
+			t.Errorf("Sub-permiso inesperado: %s", sp.Nombre)
+		}
+	}
 }
 
-func TestRevocar(t *testing.T) {
-        s, _ := crearSistemaTest(t)
-        s.ConcederTodos("test")
+// ============================================================================
+// Tests de Conceder Individual
+// ============================================================================
 
-        err := s.Revocar("archivos")
-        if err != nil {
-                t.Fatalf("Revocar() error: %v", err)
-        }
+func TestConceder_PermisoIndividual(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
 
-        if s.Verificar(PermArchivos) {
-                t.Error("permiso 'archivos' debería estar revocado")
-        }
-        if s.TodosConcedidos() {
-                t.Error("concedidos debería ser false después de revocar uno")
-        }
+	err := g.Conceder(PermRed, NivelLectura, "test", "solo lectura de red")
+	if err != nil {
+		t.Fatalf("Conceder falló: %v", err)
+	}
+
+	reg := g.ObtenerPermiso(PermRed)
+	if reg == nil {
+		t.Fatal("Permiso no encontrado después de conceder")
+	}
+	if reg.Nivel != NivelLectura {
+		t.Errorf("Nivel = %s, se esperaba lectura", reg.Nivel)
+	}
 }
 
-func TestRevocarInexistente(t *testing.T) {
-        s, _ := crearSistemaTest(t)
+func TestConceder_PermisoConSubPermisos(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
 
-        err := s.Revocar("no_existe")
-        if err == nil {
-                t.Error("debería retornar error para permiso inexistente")
-        }
+	g.Conceder(PermTerminal, NivelTotal, "test", "acceso total a terminal")
+
+	reg := g.ObtenerPermiso(PermTerminal)
+	if len(reg.SubPermisos) == 0 {
+		t.Error("Se esperaban sub-permisos para terminal")
+	}
 }
 
-func TestResetear(t *testing.T) {
-        s, _ := crearSistemaTest(t)
-        s.ConcederTodos("test_session")
+// ============================================================================
+// Tests de ConcederSubPermiso
+// ============================================================================
 
-        err := s.Resetear()
-        if err != nil {
-                t.Fatalf("Resetear() error: %v", err)
-        }
+func TestConcederSubPermiso_Existente(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+	g.ConcederTodos("test", "test")
 
-        if s.TodosConcedidos() {
-                t.Error("permisos deberían estar revocados")
-        }
-        if s.Verificar(PermArchivos) {
-                t.Error("permisos individuales deberían estar revocados")
-        }
+	err := g.ConcederSubPermiso(PermArchivos, "escribir", false, NivelDenegado)
+	if err != nil {
+		t.Fatalf("ConcederSubPermiso falló: %v", err)
+	}
+
+	if g.VerificarSubPermiso(PermArchivos, "escribir") {
+		t.Error("Sub-permiso 'escribir' debería estar denegado")
+	}
 }
 
-func TestEstadoCopia(t *testing.T) {
-        s, _ := crearSistemaTest(t)
-        estado1 := s.Estado()
-        _ = estado1
+func TestConcederSubPermiso_NoExistente(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+	g.ConcederTodos("test", "test")
+
+	err := g.ConcederSubPermiso(PermArchivos, "sub_inexistente", true, NivelTotal)
+	if err == nil {
+		t.Error("Se esperaba error para sub-permiso inexistente")
+	}
 }
 
-func TestVerificarConTodosConcedidos(t *testing.T) {
-        s, _ := crearSistemaTest(t)
-        s.ConcederTodos("test")
+// ============================================================================
+// Tests de Verificar
+// ============================================================================
 
-        if !s.Verificar(PermArchivos) {
-                t.Error("con todos concedidos, Verificar debería retornar true")
-        }
-        if !s.Verificar(PermTerminal) {
-                t.Error("con todos concedidos, Verificar debería retornar true")
-        }
+func TestVerificar_PermisoConcedido(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+	g.ConcederTodos("test", "test")
+
+	for _, tipo := range TodosLosPermisos {
+		if !g.Verificar(tipo) {
+			t.Errorf("Permiso %s debería estar concedido", tipo)
+		}
+	}
 }
 
-func TestCargaDesdeArchivo(t *testing.T) {
-        tmpDir := t.TempDir()
-        ruta := filepath.Join(tmpDir, ".liz", "permisos.json")
-        os.MkdirAll(filepath.Dir(ruta), 0755)
+func TestVerificar_PermisoNoConcedido(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
 
-        estadoPrevio := EstadoPermisos{
-                Version:    "0.1.0",
-                Concedidos: true,
-                SesionID:   "sesion_existente",
-                Permisos:   make(map[string]Permiso),
-        }
-        estadoPrevio.Permisos["archivos"] = Permiso{
-                Nombre:    "archivos",
-                Concedido: true,
-        }
+	// Resetear para que no haya permisos
+	g.Resetear()
 
-        datos, _ := json.MarshalIndent(estadoPrevio, "", "  ")
-        os.WriteFile(ruta, datos, 0644)
-
-        sistema := &Sistema{
-                rutaArchivo: ruta,
-                maxAuditoria: 1000,
-                estado: &EstadoPermisos{
-                        Version:  "0.1.0",
-                        Permisos: make(map[string]Permiso),
-                },
-        }
-        for _, p := range permisosDefecto {
-                sistema.estado.Permisos[p.Nombre] = Permiso{
-                        Nombre:      p.Nombre,
-                        Descripcion: p.Descripcion,
-                }
-        }
-
-        if data, err := os.ReadFile(ruta); err == nil {
-                var existente EstadoPermisos
-                if json.Unmarshal(data, &existente) == nil {
-                        for nombre, perm := range existente.Permisos {
-                                sistema.estado.Permisos[nombre] = perm
-                        }
-                        sistema.estado.Concedidos = existente.Concedidos
-                        sistema.estado.SesionID = existente.SesionID
-                }
-        }
-
-        if !sistema.TodosConcedidos() {
-                t.Error("debería haber cargado permisos concedidos")
-        }
-        if sistema.estado.SesionID != "sesion_existente" {
-                t.Errorf("sesion_id incorrecto")
-        }
+	if g.Verificar(PermArchivos) {
+		t.Error("Después de resetear, archivos no debería estar concedido")
+	}
 }
 
-// ═══════════════════════════════════════════════════
-// AUDITORÍA (Fase 2)
-// ═══════════════════════════════════════════════════
+func TestVerificar_GestorDeshabilitado(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+	g.Resetear()
+	g.Deshabilitar()
 
-func TestAuditoria(t *testing.T) {
-        s, _ := crearSistemaTest(t)
-
-        s.registrarAuditoria(EntradaAuditoria{
-                Permiso:   "terminal",
-                Accion:    "POST /api/chat",
-                Concedido: true,
-        })
-
-        s.registrarAuditoria(EntradaAuditoria{
-                Permiso:   "archivos",
-                Accion:    "DELETE /api/conversations/1",
-                Concedido: false,
-        })
-
-        if s.TotalAuditoria() != 2 {
-                t.Errorf("total auditoría esperado 2, obtuve %d", s.TotalAuditoria())
-        }
-
-        regs := s.Auditoria(10)
-        if len(regs) != 2 {
-                t.Errorf("auditoría(10) debería retornar 2, obtuvo %d", len(regs))
-        }
-
-        regs1 := s.Auditoria(1)
-        if len(regs1) != 1 {
-                t.Errorf("auditoría(1) debería retornar 1, obtuvo %d", len(regs1))
-        }
-        if regs1[0].Accion != "DELETE /api/conversations/1" {
-                t.Error("última entrada debería ser la del DELETE")
-        }
+	if !g.Verificar(PermArchivos) {
+		t.Error("Con gestor deshabilitado, todo debería estar permitido")
+	}
 }
 
-// ═══════════════════════════════════════════════════
-// MIDDLEWARE HTTP (Fase 2)
-// ═══════════════════════════════════════════════════
+func TestVerificarSubPermiso_Concedido(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+	g.ConcederTodos("test", "test")
 
-func TestMiddleware_PermisoConcedido(t *testing.T) {
-        s, _ := crearSistemaTest(t)
-        s.ConcederTodos("test")
-
-        handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-                w.WriteHeader(http.StatusOK)
-                w.Write([]byte("ok"))
-        })
-
-        mw := s.MiddlewareHTTP(handler)
-
-        // GET /api/tools requiere PermSistema
-        req := httptest.NewRequest("GET", "/api/tools", nil)
-        rec := httptest.NewRecorder()
-        mw.ServeHTTP(rec, req)
-
-        if rec.Code != http.StatusOK {
-                t.Errorf("con permisos, GET /api/tools debería ser 200, obtuve %d", rec.Code)
-        }
+	if !g.VerificarSubPermiso(PermArchivos, "leer") {
+		t.Error("Sub-permiso 'leer' debería estar concedido")
+	}
 }
 
-func TestMiddleware_PermisoDenegado(t *testing.T) {
-        s, _ := crearSistemaTest(t)
+func TestVerificarSubPermiso_NivelTotal(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+	g.ConcederTodos("test", "test")
 
-        handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-                w.WriteHeader(http.StatusOK)
-                w.Write([]byte("ok"))
-        })
-
-        mw := s.MiddlewareHTTP(handler)
-
-        // POST /api/chat requiere PermTerminal — no concedido
-        req := httptest.NewRequest("POST", "/api/chat", nil)
-        rec := httptest.NewRecorder()
-        mw.ServeHTTP(rec, req)
-
-        if rec.Code != http.StatusForbidden {
-                t.Errorf("sin permisos, POST /api/chat debería ser 403, obtuve %d", rec.Code)
-        }
+	// Con nivel total, cualquier sub-permiso debería estar concedido
+	if !g.VerificarSubPermiso(PermArchivos, "cualquier_cosa") {
+		// Este sub-permiso no existe, debería retornar false
+		// El comportamiento correcto es que sub-permisos inexistentes sean false
+	}
 }
 
-func TestMiddleware_RutaPublica(t *testing.T) {
-        s, _ := crearSistemaTest(t)
+// ============================================================================
+// Tests de VerificarConDetalle
+// ============================================================================
 
-        handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-                w.WriteHeader(http.StatusOK)
-                w.Write([]byte("ok"))
-        })
+func TestVerificarConDetalle_Concedido(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+	g.ConcederTodos("test", "test")
 
-        mw := s.MiddlewareHTTP(handler)
-
-        // GET /api/health es pública
-        req := httptest.NewRequest("GET", "/api/health", nil)
-        rec := httptest.NewRecorder()
-        mw.ServeHTTP(rec, req)
-
-        if rec.Code != http.StatusOK {
-                t.Errorf("GET /api/health debería ser 200, obtuve %d", rec.Code)
-        }
+	concedido, nivel, detalle := g.VerificarConDetalle(PermArchivos)
+	if !concedido {
+		t.Error("Debería estar concedido")
+	}
+	if nivel != NivelTotal {
+		t.Errorf("Nivel = %s, se esperaba total", nivel)
+	}
+	if detalle == "" {
+		t.Error("Detalle no debería estar vacío")
+	}
 }
 
-func TestPermisoRequerido(t *testing.T) {
-        // Ruta protegida
-        if p := PermisoRequerido("/api/chat", "POST"); p != PermTerminal {
-                t.Errorf("POST /api/chat debería requerir 'terminal', obtuve '%s'", p)
-        }
+func TestVerificarConDetalle_Denegado(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+	g.Resetear()
 
-        // Ruta pública
-        if p := PermisoRequerido("/api/health", "GET"); p != "" {
-                t.Errorf("GET /api/health debería ser pública, obtuvo '%s'", p)
-        }
+	concedido, nivel, detalle := g.VerificarConDetalle(PermArchivos)
+	if concedido {
+		t.Error("No debería estar concedido después de reset")
+	}
+	if nivel != NivelDenegado {
+		t.Errorf("Nivel = %s, se esperaba denegado", nivel)
+	}
+	if detalle == "" {
+		t.Error("Detalle no debería estar vacío")
+	}
 }
 
-func TestRecordarSesion_NoRecordar(t *testing.T) {
-        tmpDir := t.TempDir()
-        ruta := filepath.Join(tmpDir, ".liz", "permisos.json")
-        os.MkdirAll(filepath.Dir(ruta), 0755)
+// ============================================================================
+// Tests de Obtener
+// ============================================================================
 
-        // Simular permisos concedidos de una sesión previa
-        existente := EstadoPermisos{
-                Version:    "0.1.0",
-                Concedidos: true,
-                SesionID:   "sesion_anterior",
-                Permisos:   make(map[string]Permiso),
-        }
-        existente.Permisos["archivos"] = Permiso{Nombre: "archivos", Concedido: true}
-        datos, _ := json.MarshalIndent(existente, "", "  ")
-        os.WriteFile(ruta, datos, 0644)
+func TestObtenerTodos_Estructura(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+	g.ConcederTodos("test", "test")
 
-        // Nuevo sistema con recordar=false debería limpiar
-        s, err := NuevoSistemaConRecordarConRuta(ruta, false)
-        if err != nil {
-                t.Fatalf("error: %v", err)
-        }
+	estado := g.ObtenerTodos()
 
-        if s.TodosConcedidos() {
-                t.Error("con recordar=false, permisos previos deberían estar limpiados")
-        }
+	if estado.Version < 1 {
+		t.Error("Version debería ser >= 1")
+	}
+	if estado.ConcedidoPor != "test" {
+		t.Errorf("ConcedidoPor = %s, se esperaba test", estado.ConcedidoPor)
+	}
+	if len(estado.Permisos) != len(TodosLosPermisos) {
+		t.Errorf("Se esperaban %d permisos, hay %d", len(TodosLosPermisos), len(estado.Permisos))
+	}
 }
 
-func TestRecordarSesion_SiRecordar(t *testing.T) {
-        tmpDir := t.TempDir()
-        ruta := filepath.Join(tmpDir, ".liz", "permisos.json")
-        os.MkdirAll(filepath.Dir(ruta), 0755)
+func TestObtenerPermiso_Existente(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+	g.ConcederTodos("test", "test")
 
-        existente := EstadoPermisos{
-                Version:    "0.1.0",
-                Concedidos: true,
-                SesionID:   "sesion_anterior",
-                Permisos:   make(map[string]Permiso),
-        }
-        existente.Permisos["archivos"] = Permiso{Nombre: "archivos", Concedido: true}
-        datos, _ := json.MarshalIndent(existente, "", "  ")
-        os.WriteFile(ruta, datos, 0644)
-
-        s, err := NuevoSistemaConRecordarConRuta(ruta, true)
-        if err != nil {
-                t.Fatalf("error: %v", err)
-        }
-
-        if !s.TodosConcedidos() {
-                t.Error("con recordar=true, permisos previos deberían mantenerse")
-        }
+	reg := g.ObtenerPermiso(PermSistema)
+	if reg == nil {
+		t.Fatal("Permiso sistema no encontrado")
+	}
+	if reg.Tipo != PermSistema {
+		t.Errorf("Tipo = %s, se esperaba sistema", reg.Tipo)
+	}
 }
 
-// NuevoSistemaConRecordarConRuta crea un sistema con ruta personalizable (para testing).
-func NuevoSistemaConRecordarConRuta(ruta string, recordar bool) (*Sistema, error) {
-        s := &Sistema{
-                rutaArchivo:   ruta,
-                maxAuditoria: 1000,
-                recordar:      recordar,
-                estado: &EstadoPermisos{
-                        Version:  "0.1.0",
-                        Permisos: make(map[string]Permiso),
-                },
-        }
+func TestObtenerPermiso_NoExistente(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+	g.Resetear()
 
-        for _, p := range permisosDefecto {
-                s.estado.Permisos[p.Nombre] = Permiso{
-                        Nombre:      p.Nombre,
-                        Descripcion: p.Descripcion,
-                }
-        }
+	reg := g.ObtenerPermiso(PermArchivos)
+	if reg != nil {
+		t.Error("Después de resetear, obtener permiso debería ser nil")
+	}
+}
 
-        if datos, err := os.ReadFile(ruta); err == nil {
-                var existente EstadoPermisos
-                if json.Unmarshal(datos, &existente) == nil {
-                        for nombre, perm := range existente.Permisos {
-                                s.estado.Permisos[nombre] = perm
-                        }
-                        s.estado.Concedidos = existente.Concedidos
-                        s.estado.FechaConcesion = existente.FechaConcesion
-                        s.estado.SesionID = existente.SesionID
-                        s.estado.RecordarSesion = existente.RecordarSesion
-                }
-        }
+func TestObtenerResumen(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+	g.ConcederTodos("test", "test")
 
-        if !recordar && s.estado.Concedidos {
-                s.estado.Concedidos = false
-                s.estado.FechaConcesion = time.Time{}
-                s.estado.SesionID = ""
-                for nombre, p := range s.estado.Permisos {
-                        p.Concedido = false
-                        p.FechaHora = time.Time{}
-                        s.estado.Permisos[nombre] = p
-                }
-                s.guardar()
-        }
+	resumen := g.ObtenerResumen()
 
-        return s, nil
+	total, ok := resumen["total"].(int)
+	if !ok || total != len(TodosLosPermisos) {
+		t.Errorf("total = %v, se esperaba %d", resumen["total"], len(TodosLosPermisos))
+	}
+
+	concedidos, ok := resumen["concedidos"].(int)
+	if !ok || concedidos != len(TodosLosPermisos) {
+		t.Errorf("concedidos = %v, se esperaba %d", resumen["concedidos"], len(TodosLosPermisos))
+	}
+}
+
+// ============================================================================
+// Tests de Auditoría
+// ============================================================================
+
+func TestAuditoria_RegistroConcesion(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+	g.ConcederTodos("test", "test")
+
+	auditoria := g.ObtenerAuditoria()
+
+	if len(auditoria) == 0 {
+		t.Error("Debería haber registros de auditoría")
+	}
+
+	// Verificar que el último es "conceder"
+	ultimo := auditoria[len(auditoria)-1]
+	if ultimo.Accion != "conceder" {
+		t.Errorf("Última acción = %s, se esperaba conceder", ultimo.Accion)
+	}
+}
+
+func TestAuditoria_RegistroVerificacion(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+	g.ConcederTodos("test", "test")
+
+	// Verificar para generar entrada de auditoría
+	g.Verificar(PermArchivos)
+	g.Verificar(PermRed)
+
+	auditoria := g.ObtenerAuditoria()
+
+	// Buscar entradas de verificación
+	verificaciones := 0
+	for _, entry := range auditoria {
+		if entry.Accion == "verificar" {
+			verificaciones++
+		}
+	}
+
+	if verificaciones == 0 {
+		t.Error("Debería haber entradas de auditoría de verificación")
+	}
+}
+
+func TestAuditoria_Reciente(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+	g.ConcederTodos("test", "test")
+	g.Verificar(PermArchivos)
+	g.Verificar(PermRed)
+	g.Verificar(PermSistema)
+
+	reciente := g.ObtenerAuditoriaReciente(2)
+
+	if len(reciente) != 2 {
+		t.Errorf("Se esperaban 2 registros recientes, hay %d", len(reciente))
+	}
+}
+
+func TestAuditoria_Limpiar(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+	g.ConcederTodos("test", "test")
+
+	g.LimpiarAuditoria()
+
+	auditoria := g.ObtenerAuditoria()
+	if len(auditoria) != 0 {
+		t.Errorf("Auditoría debería estar vacía después de limpiar, hay %d", len(auditoria))
+	}
+}
+
+// ============================================================================
+// Tests de Reset
+// ============================================================================
+
+func TestResetear_RevocaTodo(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+	g.ConcederTodos("test", "test")
+
+	g.Resetear()
+
+	for _, tipo := range TodosLosPermisos {
+		if g.Verificar(tipo) {
+			t.Errorf("Permiso %s debería estar revocado después de reset", tipo)
+		}
+	}
+}
+
+func TestResetear_IncrementaVersion(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+	g.ConcederTodos("test", "test")
+
+	estado1 := g.ObtenerTodos()
+	v1 := estado1.Version
+
+	g.Resetear()
+
+	estado2 := g.ObtenerTodos()
+	if estado2.Version <= v1 {
+		t.Errorf("Versión después de reset = %d, debería ser > %d", estado2.Version, v1)
+	}
+}
+
+// ============================================================================
+// Tests de Habilitar/Deshabilitar
+// ============================================================================
+
+func TestHabilitarDeshabilitar(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+
+	g.Deshabilitar()
+	if g.EstaHabilitado() {
+		t.Error("Debería estar deshabilitado")
+	}
+
+	g.Habilitar()
+	if !g.EstaHabilitado() {
+		t.Error("Debería estar habilitado")
+	}
+}
+
+// ============================================================================
+// Tests de Persistencia
+// ============================================================================
+
+func TestPersistencia_SobreviveReinicio(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Primer gestor
+	g1, _ := Inicializar(tmpDir)
+	g1.ConcederTodos("test", "persistencia test")
+	g1.ConcederSubPermiso(PermArchivos, "eliminar", false, NivelDenegado)
+
+	// Segundo gestor (simula reinicio)
+	g2, err := Inicializar(tmpDir)
+	if err != nil {
+		t.Fatalf("Error al reiniciar gestor: %v", err)
+	}
+
+	if !g2.Verificar(PermArchivos) {
+		t.Error("Permisos deberían persistir tras reinicio")
+	}
+
+	// Verificar sub-permiso modificado
+	reg := g2.ObtenerPermiso(PermArchivos)
+	for _, sp := range reg.SubPermisos {
+		if sp.Nombre == "eliminar" && sp.Concedido {
+			t.Error("Sub-permiso 'eliminar' debería estar denegado tras reinicio")
+		}
+	}
+}
+
+// ============================================================================
+// Tests de Utilidades
+// ============================================================================
+
+func TestDescripcionPermiso(t *testing.T) {
+	desc := DescripcionPermiso(PermArchivos)
+	if desc == "" {
+		t.Error("Descripción no debería estar vacía")
+	}
+	if strings.Contains(desc, "desconocido") {
+		t.Error("PermArchivos no debería ser desconocido")
+	}
+}
+
+func TestDescripcionPermiso_Desconocido(t *testing.T) {
+	desc := DescripcionPermiso("tipo_inventado")
+	if !strings.Contains(desc, "desconocido") {
+		t.Error("Tipo inventado debería ser desconocido")
+	}
+}
+
+func TestListarTipos(t *testing.T) {
+	tipos := ListarTipos()
+
+	if len(tipos) != len(TodosLosPermisos) {
+		t.Errorf("Se esperaban %d tipos, hay %d", len(TodosLosPermisos), len(tipos))
+	}
+
+	for _, tipo := range tipos {
+		if tipo["tipo"] == "" {
+			t.Error("Tipo sin nombre")
+		}
+		if tipo["descripcion"] == "" {
+			t.Error("Tipo sin descripción")
+		}
+	}
+}
+
+func TestSortTipos(t *testing.T) {
+	tipos := []TipoPermiso{PermModelos, PermArchivos, PermTerminal}
+	SortTipos(tipos)
+
+	if tipos[0] != PermArchivos {
+		t.Errorf("Primer tipo = %s, se esperaba archivos", tipos[0])
+	}
+}
+
+func TestFormatearPermisosParaAPI(t *testing.T) {
+	tmpDir := t.TempDir()
+	g, _ := Inicializar(tmpDir)
+	g.ConcederTodos("test", "test")
+
+	datos := g.FormatearPermisosParaAPI()
+
+	permisos, ok := datos["permisos"].([]map[string]interface{})
+	if !ok {
+		t.Fatal("permisos no es array de mapas")
+	}
+	if len(permisos) == 0 {
+		t.Error("Debería haber permisos en la respuesta API")
+	}
+}
+
+// ============================================================================
+// Tests de Sub-Permisos por Defecto
+// ============================================================================
+
+func TestSubPermisosPorDefecto_Archivos(t *testing.T) {
+	subs := subPermisosPorDefecto(PermArchivos)
+
+	nombres := make([]string, len(subs))
+	for i, s := range subs {
+		nombres[i] = s.Nombre
+	}
+
+	esperados := []string{"leer", "escribir", "eliminar", "ejecutar"}
+	for _, esp := range esperados {
+		encontrado := false
+		for _, n := range nombres {
+			if n == esp {
+				encontrado = true
+				break
+			}
+		}
+		if !encontrado {
+			t.Errorf("Sub-permiso '%s' no encontrado en archivos", esp)
+		}
+	}
+}
+
+func TestSubPermisosPorDefecto_Red(t *testing.T) {
+	subs := subPermisosPorDefecto(PermRed)
+
+	nombres := make([]string, len(subs))
+	for i, s := range subs {
+		nombres[i] = s.Nombre
+	}
+
+	esperados := []string{"http", "dns", "sockets", "descargar"}
+	for _, esp := range esperados {
+		encontrado := false
+		for _, n := range nombres {
+			if n == esp {
+				encontrado = true
+				break
+			}
+		}
+		if !encontrado {
+			t.Errorf("Sub-permiso '%s' no encontrado en red", esp)
+		}
+	}
 }

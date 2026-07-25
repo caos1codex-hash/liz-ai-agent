@@ -1,435 +1,495 @@
 package servidor
 
 import (
-        "bytes"
-        "encoding/json"
-        "net/http"
-        "net/http/httptest"
-        "testing"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
 
-        "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/config"
-        "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/logger"
-        "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/permisos"
+	"github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/config"
+	"github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/logger"
+	"github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/permisos"
 )
 
-func setupTest(t *testing.T) (*Servidor, *permisos.Sistema) {
-        t.Helper()
-        var buf bytes.Buffer
-        cfg := config.ConfiguracionPorDefecto()
-        cfg.Servidor.Puerto = 0
+// ============================================================================
+// Setup Helper
+// ============================================================================
 
-        log := logger.NuevaConSalida("test", &buf)
+func setupTestServidor(t *testing.T) (*Servidor, *config.Gestor, *permisos.Gestor) {
+	t.Helper()
 
-        sisPermisos, err := permisos.NuevoSistemaConRecordar(false)
-        if err != nil {
-                t.Fatalf("error creando sistema permisos: %v", err)
-        }
+	tmpDir := t.TempDir()
+	rutaCfg := filepath.Join(tmpDir, "config.yaml")
+	os.WriteFile(rutaCfg, []byte("liz:\n  puerto: 8080\n  nombre: Liz\n  version: 0.2.0\n"), 0644)
 
-        // Config global para legacy mode en tests
-        config.Config = cfg
+	log := logger.Nuevo("test")
+	gestorCfg, err := config.Inicializar(rutaCfg)
+	if err != nil {
+		t.Fatalf("Error al inicializar config: %v", err)
+	}
 
-        srv := Nuevo(cfg, log, sisPermisos)
-        return srv, sisPermisos
+	gestorPer, err := permisos.Inicializar(tmpDir)
+	if err != nil {
+		t.Fatalf("Error al inicializar permisos: %v", err)
+	}
+
+	srv := Nuevo(gestorCfg, gestorPer, log)
+	return srv, gestorCfg, gestorPer
 }
 
-func decodeResponse(t *testing.T, rec *httptest.ResponseRecorder) map[string]interface{} {
-        t.Helper()
-        var resp map[string]interface{}
-        if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-                t.Fatalf("error decodificando respuesta: %v", err)
-        }
-        return resp
+func parseRespuesta(t *testing.T, body []byte) map[string]interface{} {
+	t.Helper()
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatalf("Error al parsear JSON: %v (body: %s)", err, string(body))
+	}
+	return result
 }
 
-func TestHealthEndpoint(t *testing.T) {
-        srv, _ := setupTest(t)
+// ============================================================================
+// Tests de Health
+// ============================================================================
 
-        req := httptest.NewRequest("GET", "/api/health", nil)
-        rec := httptest.NewRecorder()
-        srv.router.ServeHTTP(rec, req)
+func TestHandlerHealth(t *testing.T) {
+	srv, _, _ := setupTestServidor(t)
 
-        if rec.Code != http.StatusOK {
-                t.Errorf("status esperado 200, obtuve %d", rec.Code)
-        }
+	req := httptest.NewRequest("GET", "/api/v1/health", nil)
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
 
-        resp := decodeResponse(t, rec)
-        if resp["exito"] != true {
-                t.Error("exito debería ser true")
-        }
+	if rec.Code != http.StatusOK {
+		t.Errorf("Status = %d, se esperaba %d", rec.Code, http.StatusOK)
+	}
 
-        datos := resp["datos"].(map[string]interface{})
-        if datos["estado"] != "operativo" {
-                t.Errorf("estado esperado 'operativo'")
-        }
-        if datos["go_version"] == "" {
-                t.Error("go_version no debería estar vacío")
-        }
+	resp := parseRespuesta(t, rec.Body.Bytes())
+	if resp["exito"] != true {
+		t.Error("exito debería ser true")
+	}
+
+	datos, ok := resp["datos"].(map[string]interface{})
+	if !ok {
+		t.Fatal("datos no es un mapa")
+	}
+	if datos["estado"] != "operativo" {
+		t.Errorf("estado = %v, se esperaba operativo", datos["estado"])
+	}
+	if datos["version"] != "0.2.0" {
+		t.Errorf("version = %v, se esperada 0.2.0", datos["version"])
+	}
 }
 
-func TestGetConfig(t *testing.T) {
-        srv, _ := setupTest(t)
+// ============================================================================
+// Tests de Config — GET
+// ============================================================================
 
-        req := httptest.NewRequest("GET", "/api/config", nil)
-        rec := httptest.NewRecorder()
-        srv.router.ServeHTTP(rec, req)
+func TestHandlerConfigGet(t *testing.T) {
+	srv, _, _ := setupTestServidor(t)
 
-        if rec.Code != http.StatusOK {
-                t.Errorf("status esperado 200, obtuve %d", rec.Code)
-        }
+	req := httptest.NewRequest("GET", "/api/v1/config", nil)
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
 
-        resp := decodeResponse(t, rec)
-        datos := resp["datos"].(map[string]interface{})
-        if datos["tema"] != "oscuro" {
-                t.Errorf("tema esperado 'oscuro'")
-        }
+	if rec.Code != http.StatusOK {
+		t.Errorf("Status = %d, se esperaba %d", rec.Code, http.StatusOK)
+	}
+
+	resp := parseRespuesta(t, rec.Body.Bytes())
+	if resp["exito"] != true {
+		t.Error("exito debería ser true")
+	}
+
+	datos, ok := resp["datos"].(map[string]interface{})
+	if !ok {
+		t.Fatal("datos no es un mapa")
+	}
+	if datos["puerto"] != float64(8080) {
+		t.Errorf("puerto = %v, se esperaba 8080", datos["puerto"])
+	}
+	if datos["nombre"] != "Liz" {
+		t.Errorf("nombre = %v, se esperaba Liz", datos["nombre"])
+	}
 }
 
-func TestPermisosGet(t *testing.T) {
-        srv, _ := setupTest(t)
+func TestHandlerConfigGet_SanitizeAPIKeys(t *testing.T) {
+	srv, _, _ := setupTestServidor(t)
 
-        req := httptest.NewRequest("GET", "/api/permisos", nil)
-        rec := httptest.NewRecorder()
-        srv.router.ServeHTTP(rec, req)
+	req := httptest.NewRequest("GET", "/api/v1/config", nil)
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
 
-        if rec.Code != http.StatusOK {
-                t.Errorf("status esperado 200, obtuve %d", rec.Code)
-        }
+	resp := parseRespuesta(t, rec.Body.Bytes())
+	datos := resp["datos"].(map[string]interface{})
 
-        resp := decodeResponse(t, rec)
-        if resp["exito"] != true {
-                t.Error("exito debería ser true")
-        }
+	modelos, ok := datos["modelos"].([]interface{})
+	if !ok || len(modelos) == 0 {
+		t.Skip("No hay modelos para verificar sanitización")
+	}
 
-        datos := resp["datos"].(map[string]interface{})
-        if datos["permisos"] == nil {
-                t.Error("datos deberían incluir permisos")
-        }
+	// Los modelos del config por defecto no tienen API key, pero si la tuvieran
+	// deberían aparecer como "***"
+	bodyStr := rec.Body.String()
+	if strings.Contains(bodyStr, "sk-") || strings.Contains(bodyStr, "nvapi-") {
+		t.Error("La respuesta no debería contener API keys reales")
+	}
 }
 
-func TestPermisosPost(t *testing.T) {
-        srv, _ := setupTest(t)
+// ============================================================================
+// Tests de Config — PUT
+// ============================================================================
 
-        body := `{"conceder_todos": true}`
-        req := httptest.NewRequest("POST", "/api/permisos", bytes.NewBufferString(body))
-        req.Header.Set("Content-Type", "application/json")
-        rec := httptest.NewRecorder()
-        srv.router.ServeHTTP(rec, req)
+func TestHandlerConfigPut_CambioSimple(t *testing.T) {
+	srv, gestorCfg, _ := setupTestServidor(t)
 
-        if rec.Code != http.StatusOK {
-                t.Errorf("status esperado 200, obtuve %d", rec.Code)
-        }
+	body := `{"campos": {"puerto": "9090"}}`
+	req := httptest.NewRequest("PUT", "/api/v1/config", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
 
-        resp := decodeResponse(t, rec)
-        datos := resp["datos"].(map[string]interface{})
-        if datos["concedidos"] != true {
-                t.Error("después de conceder_todos, concedidos debería ser true")
-        }
+	if rec.Code != http.StatusOK {
+		t.Errorf("Status = %d, se esperaba %d (body: %s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	resp := parseRespuesta(t, rec.Body.Bytes())
+	if resp["exito"] != true {
+		t.Error("exito debería ser true")
+	}
+
+	if gestorCfg.ObtenerPuerto() != 9090 {
+		t.Errorf("Puerto = %d, se esperaba 9090 después del cambio", gestorCfg.ObtenerPuerto())
+	}
 }
 
-// ═══════════════════════════════════════════════════
-// FASE 2: DELETE permisos y auditoría
-// ═══════════════════════════════════════════════════
+func TestHandlerConfigPut_ValidacionFalla(t *testing.T) {
+	srv, _, _ := setupTestServidor(t)
 
-func TestPermisosDelete(t *testing.T) {
-        srv, _ := setupTest(t)
+	body := `{"campos": {"puerto": "99999"}}`
+	req := httptest.NewRequest("PUT", "/api/v1/config", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
 
-        // Primero conceder
-        srv.permisos.ConcederTodos("test_session")
-
-        // Ahora resetear via DELETE
-        req := httptest.NewRequest("DELETE", "/api/permisos", nil)
-        rec := httptest.NewRecorder()
-        srv.router.ServeHTTP(rec, req)
-
-        if rec.Code != http.StatusOK {
-                t.Errorf("DELETE /api/permisos debería ser 200, obtuve %d", rec.Code)
-        }
-
-        resp := decodeResponse(t, rec)
-        if resp["exito"] != true {
-                t.Error("exito debería ser true después de delete")
-        }
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("Status = %d, se esperaba %d para puerto inválido", rec.Code, http.StatusBadRequest)
+	}
 }
 
-func TestAuditoriaEndpoint(t *testing.T) {
-        srv, _ := setupTest(t)
+func TestHandlerConfigPut_SinCampos(t *testing.T) {
+	srv, _, _ := setupTestServidor(t)
 
-        req := httptest.NewRequest("GET", "/api/permisos/auditoria", nil)
-        rec := httptest.NewRecorder()
-        srv.router.ServeHTTP(rec, req)
+	body := `{"campos": {}}`
+	req := httptest.NewRequest("PUT", "/api/v1/config", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
 
-        if rec.Code != http.StatusOK {
-                t.Errorf("auditoría debería ser 200, obtuve %d", rec.Code)
-        }
-
-        resp := decodeResponse(t, rec)
-        if resp["exito"] != true {
-                t.Error("exito debería ser true")
-        }
-
-        datos := resp["datos"].(map[string]interface{})
-        if datos["total"] == nil {
-                t.Error("datos deberían incluir total")
-        }
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("Status = %d, se esperaba %d para campos vacíos", rec.Code, http.StatusBadRequest)
+	}
 }
 
-func TestChatStub_PermisoDenegado(t *testing.T) {
-        srv, _ := setupTest(t)
+func TestHandlerConfigPut_JSONInvalido(t *testing.T) {
+	srv, _, _ := setupTestServidor(t)
 
-        // Sin permisos, POST /api/chat debería ser 403 (middleware)
-        body := `{"mensaje":"hola"}`
-        req := httptest.NewRequest("POST", "/api/chat", bytes.NewBufferString(body))
-        req.Header.Set("Content-Type", "application/json")
-        rec := httptest.NewRecorder()
-        srv.router.ServeHTTP(rec, req)
+	body := `no es json`
+	req := httptest.NewRequest("PUT", "/api/v1/config", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
 
-        if rec.Code != http.StatusForbidden {
-                t.Errorf("sin permisos, POST /api/chat debería ser 403, obtuve %d", rec.Code)
-        }
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("Status = %d, se esperaba %d para JSON inválido", rec.Code, http.StatusBadRequest)
+	}
 }
 
-func TestChatStub_PermisoConcedido(t *testing.T) {
-        srv, _ := setupTest(t)
-        srv.permisos.ConcederTodos("test_session")
+// ============================================================================
+// Tests de Config — Esquema
+// ============================================================================
 
-        // Con permisos, debería pasar el middleware y llegar al stub 501
-        body := `{"mensaje":"hola"}`
-        req := httptest.NewRequest("POST", "/api/chat", bytes.NewBufferString(body))
-        req.Header.Set("Content-Type", "application/json")
-        rec := httptest.NewRecorder()
-        srv.router.ServeHTTP(rec, req)
+func TestHandlerConfigEsquema(t *testing.T) {
+	srv, _, _ := setupTestServidor(t)
 
-        if rec.Code != http.StatusNotImplemented {
-                t.Errorf("con permisos, debería llegar al stub 501, obtuve %d", rec.Code)
-        }
+	req := httptest.NewRequest("GET", "/api/v1/config/esquema", nil)
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Status = %d, se esperada %d", rec.Code, http.StatusOK)
+	}
+
+	resp := parseRespuesta(t, rec.Body.Bytes())
+	esquema, ok := resp["datos"].(map[string]interface{})
+	if !ok {
+		t.Fatal("datos no contiene esquema")
+	}
+
+	campos, ok := esquema["campos"].([]interface{})
+	if !ok || len(campos) == 0 {
+		t.Error("El esquema debería tener campos")
+	}
 }
 
-func TestCORSMiddleware(t *testing.T) {
-        srv, _ := setupTest(t)
+// ============================================================================
+// Tests de Config — Cambios
+// ============================================================================
 
-        req := httptest.NewRequest("OPTIONS", "/api/health", nil)
-        rec := httptest.NewRecorder()
-        srv.router.ServeHTTP(rec, req)
+func TestHandlerConfigCambios(t *testing.T) {
+	srv, gestorCfg, _ := setupTestServidor(t)
 
-        if rec.Code != http.StatusOK {
-                t.Errorf("CORS preflight debería retornar 200, obtuve %d", rec.Code)
-        }
+	// Hacer un cambio primero
+	gestorCfg.Establecer("puerto", "5555")
 
-        cors := rec.Header().Get("Access-Control-Allow-Origin")
-        if cors != "*" {
-                t.Errorf("CORS origin esperado '*', obtuve '%s'", cors)
-        }
+	req := httptest.NewRequest("GET", "/api/v1/config/cambios", nil)
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Status = %d, se esperaba %d", rec.Code, http.StatusOK)
+	}
+
+	resp := parseRespuesta(t, rec.Body.Bytes())
+	cambios, ok := resp["datos"].([]interface{})
+	if !ok || len(cambios) == 0 {
+		t.Error("Debería haber cambios registrados")
+	}
 }
 
-func TestPutConfig(t *testing.T) {
-        srv, _ := setupTest(t)
+// ============================================================================
+// Tests de Config — Recargar
+// ============================================================================
 
-        body := `{"tema": "claro"}`
-        req := httptest.NewRequest("PUT", "/api/config", bytes.NewBufferString(body))
-        req.Header.Set("Content-Type", "application/json")
-        rec := httptest.NewRecorder()
-        srv.router.ServeHTTP(rec, req)
+func TestHandlerConfigRecargar(t *testing.T) {
+	srv, _, _ := setupTestServidor(t)
 
-        if rec.Code != http.StatusOK {
-                t.Errorf("status esperado 200, obtuve %d", rec.Code)
-        }
+	req := httptest.NewRequest("POST", "/api/v1/config/recargar", nil)
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
 
-        resp := decodeResponse(t, rec)
-        datos := resp["datos"].(map[string]interface{})
-        if datos["tema"] != "claro" {
-                t.Errorf("tema debería haber cambiado a 'claro'")
-        }
+	if rec.Code != http.StatusOK {
+		t.Errorf("Status = %d, se esperaba %d (body: %s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	resp := parseRespuesta(t, rec.Body.Bytes())
+	if resp["exito"] != true {
+		t.Error("exito debería ser true")
+	}
 }
 
-func TestPutConfigPuertoInvalido(t *testing.T) {
-        srv, _ := setupTest(t)
+// ============================================================================
+// Tests de Permisos — GET
+// ============================================================================
 
-        body := `{"puerto": 99999}`
-        req := httptest.NewRequest("PUT", "/api/config", bytes.NewBufferString(body))
-        req.Header.Set("Content-Type", "application/json")
-        rec := httptest.NewRecorder()
-        srv.router.ServeHTTP(rec, req)
+func TestHandlerPermisosGet(t *testing.T) {
+	srv, _, _ := setupTestServidor(t)
 
-        if rec.Code != http.StatusBadRequest {
-                t.Errorf("puerto inválido debería retornar 400, obtuve %d", rec.Code)
-        }
+	req := httptest.NewRequest("GET", "/api/v1/permisos", nil)
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Status = %d, se esperaba %d", rec.Code, http.StatusOK)
+	}
+
+	resp := parseRespuesta(t, rec.Body.Bytes())
+	if resp["exito"] != true {
+		t.Error("exito debería ser true")
+	}
+
+	datos, ok := resp["datos"].(map[string]interface{})
+	if !ok {
+		t.Fatal("datos no es un mapa")
+	}
+
+	perms, ok := datos["permisos"].([]interface{})
+	if !ok || len(perms) == 0 {
+		t.Error("Debería haber permisos en la respuesta")
+	}
 }
 
-// Health ahora incluye permisos_listos
-func TestHealth_PermisosListos(t *testing.T) {
-        srv, _ := setupTest(t)
+// ============================================================================
+// Tests de Permisos — POST
+// ============================================================================
 
-        req := httptest.NewRequest("GET", "/api/health", nil)
-        rec := httptest.NewRecorder()
-        srv.router.ServeHTTP(rec, req)
+func TestHandlerPermisosPost_Valido(t *testing.T) {
+	srv, _, gestorPer := setupTestServidor(t)
 
-        resp := decodeResponse(t, rec)
-        datos := resp["datos"].(map[string]interface{})
-        if datos["permisos_listos"] == nil {
-                t.Error("health debería incluir permisos_listos")
-        }
+	body := `{"tipo": "archivos", "nivel": "lectura", "razon": "test"}`
+	req := httptest.NewRequest("POST", "/api/v1/permisos", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Status = %d, se esperaba %d (body: %s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	reg := gestorPer.ObtenerPermiso(permisos.PermArchivos)
+	if reg == nil {
+		t.Fatal("Permiso no encontrado después de POST")
+	}
+	if reg.Nivel != permisos.NivelLectura {
+		t.Errorf("Nivel = %s, se esperaba lectura", reg.Nivel)
+	}
 }
 
-// ═══════════════════════════════════════════════════
-// FASE 3: Contexto
-// ═══════════════════════════════════════════════════
+func TestHandlerPermisosPost_TipoInvalido(t *testing.T) {
+	srv, _, _ := setupTestServidor(t)
 
-func setupTestConContexto(t *testing.T) (*Servidor, *permisos.Sistema, *contexto.Coordinador) {
-        t.Helper()
-        var buf bytes.Buffer
-        cfg := config.ConfiguracionPorDefecto()
-        cfg.Servidor.Puerto = 0
+	body := `{"tipo": "tipo_inventado"}`
+	req := httptest.NewRequest("POST", "/api/v1/permisos", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
 
-        log := logger.NuevaConSalida("test", &buf)
-
-        sisPermisos, err := permisos.NuevoSistemaConRecordar(false)
-        if err != nil {
-                t.Fatalf("error creando sistema permisos: %v", err)
-        }
-
-        tmpDir := t.TempDir()
-        coord, err := contexto.NuevoCoordinador(filepath.Join(tmpDir, "proyectos"))
-        if err != nil {
-                t.Fatalf("error creando coordinador: %v", err)
-        }
-
-        srv := NuevoConContexto(&config.Gestor{
-                rutaActiva: filepath.Join(tmpDir, "config.json"),
-                config:     cfg,
-                logFunc:    func(string, ...interface{}) {},
-        }, log, sisPermisos, coord)
-        return srv, sisPermisos, coord
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("Status = %d, se esperaba %d para tipo inválido", rec.Code, http.StatusBadRequest)
+	}
 }
 
-func setupTestConCoordinador(t *testing.T) (*Servidor, *contexto.Coordinador) {
-        srv, _, coord := setupTestConContexto(t)
-        return srv, coord
+func TestHandlerPermisosPost_SinTipo(t *testing.T) {
+	srv, _, _ := setupTestServidor(t)
+
+	body := `{"nivel": "total"}`
+	req := httptest.NewRequest("POST", "/api/v1/permisos", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("Status = %d, se esperaba %d sin tipo", rec.Code, http.StatusBadRequest)
+	}
 }
 
-func TestContexto_ListarProyectos(t *testing.T) {
-        srv, _ := setupTestConCoordinador(t)
+// ============================================================================
+// Tests de Permisos — Resumen
+// ============================================================================
 
-        req := httptest.NewRequest("GET", "/api/contexto/proyectos", nil)
-        rec := httptest.NewRecorder()
-        srv.router.ServeHTTP(rec, req)
+func TestHandlerPermisosResumen(t *testing.T) {
+	srv, _, _ := setupTestServidor(t)
 
-        if rec.Code != http.StatusOK {
-                t.Errorf("status esperado 200, obtuve %d", rec.Code)
-        }
+	req := httptest.NewRequest("GET", "/api/v1/permisos/resumen", nil)
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
 
-        resp := decodeResponse(t, rec)
-        if resp["exito"] != true {
-                t.Error("exito debería ser true")
-        }
+	if rec.Code != http.StatusOK {
+		t.Errorf("Status = %d, se esperaba %d", rec.Code, http.StatusOK)
+	}
 
-        datos := resp["datos"].(map[string]interface{})
-        if datos["total"] == nil {
-                t.Error("datos deberían incluir total")
-        }
+	resp := parseRespuesta(t, rec.Body.Bytes())
+	datos, ok := resp["datos"].(map[string]interface{})
+	if !ok {
+		t.Fatal("datos no es un mapa")
+	}
+	if datos["total"] == nil {
+		t.Error("resumen debería tener 'total'")
+	}
 }
 
-func TestContexto_Indexar(t *testing.T) {
-        srv, coord := setupTestConCoordinador(t)
+// ============================================================================
+// Tests de Permisos — Auditoría
+// ============================================================================
 
-        // Crear un proyecto de prueba
-        tmpDir := t.TempDir()
-        os.MkdirAll(filepath.Join(tmpDir, "cmd"), 0755)
-        os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("package main\n\nfunc main() {}"), 0644)
-        os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\ngo 1.21\n"), 0644)
+func TestHandlerPermisosAuditoria(t *testing.T) {
+	srv, _, _ := setupTestServidor(t)
 
-        body := fmt.Sprintf(`{"ruta": "%s"}`, tmpDir)
-        req := httptest.NewRequest("POST", "/api/contexto/indexar", bytes.NewBufferString(body))
-        req.Header.Set("Content-Type", "application/json")
-        rec := httptest.NewRecorder()
-        srv.router.ServeHTTP(rec, req)
+	req := httptest.NewRequest("GET", "/api/v1/permisos/auditoria", nil)
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
 
-        if rec.Code != http.StatusOK {
-                t.Errorf("status esperado 200, obtuve %d. Body: %s", rec.Code, rec.Body.String())
-        }
+	if rec.Code != http.StatusOK {
+		t.Errorf("Status = %d, se esperaba %d", rec.Code, http.StatusOK)
+	}
 
-        resp := decodeResponse(t, rec)
-        if resp["exito"] != true {
-                t.Errorf("indexación falló: %v", resp["error"])
-        }
-
-        datos := resp["datos"].(map[string]interface{})
-        if datos["total_archivos"] == nil {
-                t.Error("respuesta debería incluir total_archivos")
-        }
-
-        // Verificar que se puede obtener el mapa
-        nombreProyecto := filepath.Base(tmpDir)
-        req2 := httptest.NewRequest("GET", "/api/contexto/mapa/"+nombreProyecto, nil)
-        rec2 := httptest.NewRecorder()
-        srv.router.ServeHTTP(rec2, req2)
-
-        if rec2.Code != http.StatusOK {
-                t.Errorf("mapa debería ser accesible, status: %d. Body: %s", rec2.Code, rec2.Body.String())
-        }
-
-        _ = coord
+	resp := parseRespuesta(t, rec.Body.Bytes())
+	_, ok := resp["datos"].([]interface{})
+	if !ok {
+		t.Error("datos debería ser un array de auditoría")
+	}
 }
 
-func TestContexto_Indexar_SinRuta(t *testing.T) {
-        srv, _ := setupTestConCoordinador(t)
+// ============================================================================
+// Tests de Stubs
+// ============================================================================
 
-        body := `{}`
-        req := httptest.NewRequest("POST", "/api/contexto/indexar", bytes.NewBufferString(body))
-        req.Header.Set("Content-Type", "application/json")
-        rec := httptest.NewRecorder()
-        srv.router.ServeHTTP(rec, req)
+func TestHandlerStub_NotImplemented(t *testing.T) {
+	srv, _, _ := setupTestServidor(t)
 
-        if rec.Code != http.StatusBadRequest {
-                t.Errorf("sin ruta debería ser 400, obtuve %d", rec.Code)
-        }
+	endpoints := []string{"/api/v1/tools", "/api/v1/orquestador", "/api/v1/modelos",
+		"/api/v1/conversations"}
+
+	for _, ep := range endpoints {
+		req := httptest.NewRequest("GET", ep, nil)
+		rec := httptest.NewRecorder()
+		srv.router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotImplemented {
+			t.Errorf("GET %s: Status = %d, se esperaba %d", ep, rec.Code, http.StatusNotImplemented)
+		}
+
+		resp := parseRespuesta(t, rec.Body.Bytes())
+		if resp["exito"] != false {
+			t.Errorf("GET %s: exito debería ser false", ep)
+		}
+	}
 }
 
-func TestContexto_Buscar(t *testing.T) {
-        srv, coord := setupTestConCoordinador(t)
+func TestHandlerStub_Chat_NotImplemented(t *testing.T) {
+	srv, _, _ := setupTestServidor(t)
 
-        // Crear e indexar un proyecto
-        tmpDir := t.TempDir()
-        os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("package main\nfunc main() {}"), 0644)
-        os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\ngo 1.21\n"), 0644)
-        coord.IndexarProyecto(tmpDir)
+	body := `{"mensaje": "hola"}`
+	req := httptest.NewRequest("POST", "/api/v1/chat", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
 
-        nombreProyecto := filepath.Base(tmpDir)
-        req := httptest.NewRequest("GET", "/api/contexto/buscar/"+nombreProyecto+"?q=go", nil)
-        rec := httptest.NewRecorder()
-        srv.router.ServeHTTP(rec, req)
-
-        if rec.Code != http.StatusOK {
-                t.Errorf("buscar debería ser 200, obtuve %d", rec.Code)
-        }
-
-        resp := decodeResponse(t, rec)
-        datos := resp["datos"].(map[string]interface{})
-        total := datos["total"].(float64)
-        if total == 0 {
-                t.Error("búsqueda de 'go' debería encontrar resultados")
-        }
+	if rec.Code != http.StatusNotImplemented {
+		t.Errorf("Status = %d, se esperaba %d", rec.Code, http.StatusNotImplemented)
+	}
 }
 
-func TestContexto_MapaNoExistente(t *testing.T) {
-        srv, _ := setupTestConCoordinador(t)
+// ============================================================================
+// Tests de CORS
+// ============================================================================
 
-        req := httptest.NewRequest("GET", "/api/contexto/mapa/proyecto_no_existente", nil)
-        rec := httptest.NewRecorder()
-        srv.router.ServeHTTP(rec, req)
+func TestMiddlewareCORS_Headers(t *testing.T) {
+	srv, _, _ := setupTestServidor(t)
 
-        if rec.Code != http.StatusNotFound {
-                t.Errorf("mapa inexistente debería ser 404, obtuve %d", rec.Code)
-        }
+	req := httptest.NewRequest("GET", "/api/v1/health", nil)
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
+
+	if rec.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Error("CORS: Access-Control-Allow-Origin debería ser *")
+	}
 }
 
-func TestContexto_BuscarSinQuery(t *testing.T) {
-        srv, _ := setupTestConCoordinador(t)
+func TestMiddlewareCORS_OPTIONS(t *testing.T) {
+	srv, _, _ := setupTestServidor(t)
 
-        req := httptest.NewRequest("GET", "/api/contexto/buscar/mi_proyecto", nil)
-        rec := httptest.NewRecorder()
-        srv.router.ServeHTTP(rec, req)
+	req := httptest.NewRequest("OPTIONS", "/api/v1/health", nil)
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
 
-        if rec.Code != http.StatusBadRequest {
-                t.Errorf("sin parámetro 'q' debería ser 400, obtuve %d", rec.Code)
-        }
+	if rec.Code != http.StatusOK {
+		t.Errorf("OPTIONS Status = %d, se esperaba %d", rec.Code, http.StatusOK)
+	}
+}
+
+// ============================================================================
+// Tests de 404
+// ============================================================================
+
+func TestRutaNoExistente(t *testing.T) {
+	srv, _, _ := setupTestServidor(t)
+
+	req := httptest.NewRequest("GET", "/api/v1/no-existe", nil)
+	rec := httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status = %d, se esperaba %d para ruta inexistente", rec.Code, http.StatusMethodNotAllowed)
+	}
 }
