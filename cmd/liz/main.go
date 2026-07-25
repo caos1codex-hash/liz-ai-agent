@@ -7,6 +7,7 @@
 //   - contexto: coordinador de contexto (mapa, fragmentos, índice, resúmenes)
 //   - memoria: sistema de memoria conversacional (sesiones, hechos)
 //   - orquestador: multi-modelo NVIDIA con fallback (Fase 4)
+//   - herramientas: catálogo + 7 integradas (Fase 5)
 //   - servidor: HTTP API con todos los endpoints
 package main
 
@@ -20,6 +21,9 @@ import (
 
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/config"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto"
+        "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/herramientas"
+        "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/herramientas/integradas"
+        "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/herramientas/registro"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/logger"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/memoria"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/orquestador"
@@ -28,7 +32,7 @@ import (
 )
 
 // versión del binario. Se actualiza en cada release.
-const version = "0.4.0"
+const version = "0.5.0"
 
 // main es el punto de entrada del binario `liz`.
 //
@@ -148,11 +152,42 @@ func main() {
                 log.Info("Búsqueda híbrida (BM25+vector) habilitada con nvidia/nv-embed-v1")
         }
 
+        // --- Catálogo de Herramientas (Fase 5) ---
+        // 7 herramientas integradas: terminal, navegador_archivos, buscador,
+        // editor, procesos, monitor, instalador.
+        log.Info("Inicializando catálogo de herramientas (Fase 5)")
+        catalogo := registro.NuevoCatalogo().ConLog(func(formato string, args ...interface{}) {
+                log.Info("[herramientas] "+formato, args...)
+        })
+
+        // Registrar las 7 herramientas integradas (cada una implementa herramientas.Herramienta).
+        herramientasARegistrar := []struct {
+                nombre string
+                crea   func() herramientas.Herramienta
+        }{
+                {"terminal", func() herramientas.Herramienta { return integradas.NewTerminal() }},
+                {"navegador_archivos", func() herramientas.Herramienta { return integradas.NewNavegadorArchivos() }},
+                {"buscador", func() herramientas.Herramienta { return integradas.NewBuscador() }},
+                {"editor", func() herramientas.Herramienta { return integradas.NewEditor() }},
+                {"procesos", func() herramientas.Herramienta { return integradas.NewProcesos() }},
+                {"monitor", func() herramientas.Herramienta { return integradas.NewMonitor() }},
+                {"instalador", func() herramientas.Herramienta { return integradas.NewInstalador() }},
+        }
+        for _, h := range herramientasARegistrar {
+                if err := catalogo.Registrar(h.crea()); err != nil {
+                        log.Error("Error al registrar herramienta %s: %v", h.nombre, err)
+                        continue
+                }
+                log.Info("Herramienta registrada: %s", h.nombre)
+        }
+        log.Info("Catálogo de herramientas: %d registradas", catalogo.Tamaño())
+
         // --- Servidor ---
         log.Info("Creando servidor HTTP")
         srv := servidor.Nuevo(gestorCfg, gestorPer, log).
                 ConCoordinador(coordinador).
-                ConMemoria(gestorMem)
+                ConMemoria(gestorMem).
+                ConCatalogo(catalogo)
         if orch != nil {
                 srv = srv.ConOrquestador(orch)
         }
@@ -178,6 +213,7 @@ func main() {
                 gestorCfg.ObtenerHost(), gestorCfg.ObtenerPuerto())
         log.Info("Endpoints de contexto disponibles en /api/v1/contexto/*")
         log.Info("Endpoints de memoria disponibles en /api/v1/memoria/*")
+        log.Info("Endpoints de herramientas disponibles en /api/v1/herramientas/*")
         if orch != nil {
                 log.Info("Endpoints del orquestador disponibles en /api/v1/orquestador/*")
         }
