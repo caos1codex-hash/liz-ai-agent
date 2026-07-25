@@ -14,6 +14,7 @@ import (
 
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/config"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto"
+        "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/herramientas/registro"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/logger"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/memoria"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/orquestador"
@@ -60,6 +61,7 @@ type Servidor struct {
         gestorCtx   *contexto.Coordinador    // opcional, se inyecta en Fase 3
         gestorMem   *memoria.Gestor          // opcional, se inyecta en Fase 3.5+ (memoria conversacional)
         orquestador *orquestador.Orquestador // opcional, se inyecta en Fase 4
+        catalogo    *registro.Catalogo       // opcional, se inyecta en Fase 5 (herramientas)
         log         *logger.Logger
         inicio      time.Time
 }
@@ -161,8 +163,10 @@ func (s *Servidor) registrarRutas() {
         s.router.HandleFunc("/api/v1/contexto/tracker/edicion", s.handlerTrackerRegistrarEdicion).Methods("POST", "OPTIONS")
         s.router.HandleFunc("/api/v1/contexto/tracker/recientes", s.handlerTrackerRecientes).Methods("GET", "OPTIONS")
 
+        // --- Herramientas (Fase 5) ---
+        s.registrarRutasHerramientas()
+
         // --- Stubs fases futuras ---
-        s.router.HandleFunc("/api/v1/tools", s.handlerStub("tools")).Methods("GET", "OPTIONS")
         s.router.HandleFunc("/api/v1/modelos", s.handlerStub("modelos")).Methods("GET", "OPTIONS")
         s.router.HandleFunc("/api/v1/conversations", s.handlerStub("conversations")).Methods("GET", "OPTIONS")
         s.router.HandleFunc("/api/v1/chat", s.handlerStub("chat")).Methods("POST", "OPTIONS")

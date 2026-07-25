@@ -422,7 +422,8 @@ func TestHandlerStub_NotImplemented(t *testing.T) {
 
         // /api/v1/orquestador ya NO es un stub: ahora es un handler real que
         // responde 503 si el orquestador no está inyectado. Se testea aparte.
-        endpoints := []string{"/api/v1/tools", "/api/v1/modelos",
+        // /api/v1/tools ya NO es un stub: ahora es handler real de Fase 5.
+        endpoints := []string{"/api/v1/modelos",
                 "/api/v1/conversations"}
 
         for _, ep := range endpoints {
