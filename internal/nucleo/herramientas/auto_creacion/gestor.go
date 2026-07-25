@@ -436,6 +436,21 @@ func (g *Gestor) Recargar(ctx context.Context, nombre string, nuevoFuente string
         }
         resultado.CargaExitosa = true
 
+        // Si se proporcionó un nuevo fuente, refrescar la spec desde el binario
+        // (la nueva implementación puede tener descripción/parámetros diferentes).
+        if nuevoFuente != "" || usarLLM {
+                // Forzar recarga de info cacheada creando un wrapper fresco
+                // (llamamos Nombre/Descripcion/Parametros para triggerear ensureInfo).
+                nuevaDesc := herr.Descripcion()
+                nuevosParams := herr.Parametros()
+                if nuevaDesc != "" {
+                        meta.Descripcion = nuevaDesc
+                }
+                if len(nuevosParams) > 0 {
+                        meta.Parametros = nuevosParams
+                }
+        }
+
         // Actualizar metadata
         meta.ActualizadoEn = time.Now()
         meta.VersionContador++

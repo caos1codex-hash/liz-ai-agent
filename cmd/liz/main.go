@@ -22,6 +22,7 @@ import (
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/config"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/herramientas"
+        "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/herramientas/auto_creacion"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/herramientas/integradas"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/herramientas/registro"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/logger"
@@ -32,7 +33,7 @@ import (
 )
 
 // versión del binario. Se actualiza en cada release.
-const version = "0.5.0"
+const version = "0.6.0"
 
 // main es el punto de entrada del binario `liz`.
 //
@@ -182,12 +183,48 @@ func main() {
         }
         log.Info("Catálogo de herramientas: %d registradas", catalogo.Tamaño())
 
+        // --- Gestor de Auto-Creación (Fase 6) ---
+        // Permite a Liz programarse a sí misma herramientas que no tiene.
+        // Las herramientas auto-creadas se almacenan en ~/.liz/herramientas/auto_creadas/
+        // y se cargan al iniciar para que queden disponibles inmediatamente.
+        dirAutoCreadas := filepath.Join(home, ".liz", "herramientas", "auto_creadas")
+        log.Info("Inicializando gestor de auto-creación (Fase 6): %s", dirAutoCreadas)
+
+        // El gestor usa el orquestador como LLM si está disponible
+        var clienteLLM auto_creacion.ClienteLLM
+        if orch != nil {
+                clienteLLM = orch
+                log.Info("Auto-creación: LLM disponible (orquestador NVIDIA)")
+        } else {
+                log.Warn("Auto-creación: LLM no disponible (orquestador no inicializado) — solo se permite crear vía 'forzar_spec'/'forzar_nombre'")
+        }
+
+        autoGestor, err := auto_creacion.NuevoGestor(clienteLLM, dirAutoCreadas, catalogo)
+        if err != nil {
+                log.Error("Error al inicializar gestor de auto-creación: %v", err)
+                os.Exit(1)
+        }
+        autoGestor = autoGestor.ConLog(func(formato string, args ...interface{}) {
+                log.Info("[auto-creación] " + formato, args...)
+        })
+
+        // Cargar herramientas auto-creadas existentes
+        cargadas, errsCarga := autoGestor.CargarTodas()
+        if cargadas > 0 {
+                log.Info("Herramientas auto-creadas cargadas: %d", cargadas)
+        }
+        for _, e := range errsCarga {
+                log.Warn("Carga de herramienta auto-creada: %v", e)
+        }
+        log.Info("Catálogo total (integradas + auto-creadas): %d herramientas", catalogo.Tamaño())
+
         // --- Servidor ---
         log.Info("Creando servidor HTTP")
         srv := servidor.Nuevo(gestorCfg, gestorPer, log).
                 ConCoordinador(coordinador).
                 ConMemoria(gestorMem).
-                ConCatalogo(catalogo)
+                ConCatalogo(catalogo).
+                ConAutoGestor(autoGestor)
         if orch != nil {
                 srv = srv.ConOrquestador(orch)
         }
@@ -214,6 +251,7 @@ func main() {
         log.Info("Endpoints de contexto disponibles en /api/v1/contexto/*")
         log.Info("Endpoints de memoria disponibles en /api/v1/memoria/*")
         log.Info("Endpoints de herramientas disponibles en /api/v1/herramientas/*")
+        log.Info("Endpoints de auto-creación disponibles en /api/v1/herramientas/auto-creadas/* y /api/v1/herramientas/auto-crear")
         if orch != nil {
                 log.Info("Endpoints del orquestador disponibles en /api/v1/orquestador/*")
         }
