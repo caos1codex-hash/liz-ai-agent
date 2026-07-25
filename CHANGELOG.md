@@ -1,5 +1,90 @@
 # Changelog — Liz AI Agent
 
+## [0.7.0] — Fase 7: Pipeline de Chat
+
+> **Liz ahora tiene un cerebro. El pipeline conecta todos los subsistemas en un
+> flujo coherente end-to-end: mensaje → clasificación → planificación →
+> ejecución de herramientas → respuesta con streaming. Es el sistema nervioso
+> central que transforma inputs de lenguaje natural en acciones concretas del
+> sistema operativo.**
+
+### Pipeline de Chat (`internal/pipeline/`)
+
+Paquete nuevo con 12 archivos que implementan el flujo completo:
+
+| Archivo | Función |
+|--------|---------|
+| `doc.go` | Documentación del paquete |
+| `tipos.go` | Categorías, mensajes, planes, respuestas, chunks SSE |
+| `interfaces.go` | Interfaces desacopladas para testing |
+| `adaptadores.go` | Adapters para tests (mocks) |
+| `helpers.go` | Utilidades JSON |
+| `receptor.go` | Validación, sesiones, almacenamiento |
+| `clasificador.go` | 10 categorías, heurísticas + LLM |
+| `planificador.go` | Descomposición en pasos con herramientas |
+| `ejecutor.go` | Ejecución secuencial con dependencias |
+| `respondedor.go` | Generación de respuesta + streaming SSE |
+| `pipeline.go` | Coordinador principal thread-safe |
+| `pipeline_test.go` | 30 tests unitarios |
+
+**Características:**
+- **Clasificador híbrido**: heurísticas rápidas (sin LLM) con fallback a LLM para ambigüedades
+- **10 categorías**: conversación, código, archivos, procesos, monitorización, instalación, búsqueda, análisis, auto-creación, ejecución
+- **Planificador inteligente**: usa LLM para descomponer tareas en pasos, selecciona herramientas, respeta dependencias
+- **Ejecutor con auto-creación**: si una herramienta no existe, la crea automáticamente
+- **Respondedor con streaming**: SSE progresivo, contexto de memoria, resultados de herramientas
+- **Graceful degradation**: funciona sin LLM (modo "sin modelo"), sin catálogo, sin memoria
+- **Thread-safe**:-safe para uso concurrente con `sync.RWMutex`
+- **Métricas**: mensajes procesados, duración promedio, conteo por categoría, modelo más usado
+
+### Endpoints API (7 endpoints)
+
+```
+POST   /api/v1/chat             # Enviar mensaje (JSON o SSE streaming)
+GET    /api/v1/chat             # Estado del pipeline
+GET    /api/v1/chat/metricas     # Métricas detalladas
+GET    /api/v1/chat/sesiones      # Listar sesiones
+POST   /api/v1/chat/sesiones      # Crear sesión
+GET    /api/v1/chat/sesiones/{id}  # Detalle + mensajes
+DELETE /api/v1/chat/sesiones/{id}  # Cerrar sesión
+```
+
+### Integración en Servidor (`internal/nucleo/servidor/`)
+
+- `handlers_fase7.go`: 7 handlers HTTP implementados
+- `handlers_fase7_test.go`: 8 tests de handlers
+- `servidor.go`: campo `pipelineMgr` + `ConPipeline()` builder
+- Reemplaza stub `/api/v1/chat` con implementación real
+- El endpoint stub de chat ahora responde 503 (no implementado → pipeline no disponible)
+
+### Integración en `cmd/liz/main.go`
+
+- Inicialización del pipeline con las 5 dependencias ya existentes
+- 5 adaptadores que conectan implementaciones reales con interfaces del pipeline:
+  - `pipelineOrquestadorAdapter` → Orquestador NVIDIA
+  - `pipelineCatalogoAdapter` → Catálogo de herramientas
+  - `pipelineMemoriaAdapter` → Gestor de memoria
+  - `pipelineAutoCreacionAdapter` → Gestor de auto-creación
+  - `pipelineContextoAdapter` → Coordinador de contexto
+- Builder: `.ConPipeline(pipelineMgr)`
+
+### Tests
+
+- **28 tests nuevos** en pipeline + 8 tests nuevos en handlers = **36 tests nuevos**
+- Total: **616 tests pasando** (28 paquetes, 0 fallos)
+- `go test ./... -count=1` → OK
+- `go build ./...` → OK (0 warnings, 0 errores)
+
+### Paquetes modificados
+
+- `internal/pipeline/` — NUEVO (12 archivos)
+- `internal/nucleo/servidor/servidor.go` — campo pipeline, import, rutas
+- `internal/nucleo/servidor/handlers_fase7.go` — NUEVO (7 handlers)
+- `internal/nucleo/servidor/handlers_fase7_test.go` — NUEVO (8 tests)
+- `cmd/liz/main.go` — pipeline init + 5 adaptadores + import
+
+---
+
 ## [0.6.0] — Fase 6: Auto-Creación de Herramientas
 
 > **Liz ahora se programa a sí misma. Si necesita una herramienta que no tiene,

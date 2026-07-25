@@ -4,8 +4,8 @@
 > No es un chatbot. No es un asistente de codigo. Es un sistema operativo de IA.
 
 ![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8)
-![Phase](https://img.shields.io/badge/fase-6%20de%2010-orange)
-![Tests](https://img.shields.io/badge/tests-588%20pasando-brightgreen)
+![Phase](https://img.shields.io/badge/fase-7%20de%2010-orange)
+![Tests](https://img.shields.io/badge/tests-616%20pasando-brightgreen)
 
 ## Que hace Liz?
 
@@ -52,7 +52,7 @@ FRONTEND (React) ──SSE──> PIPELINE ──> ORQUESTADOR (8+ modelos NVIDI
 | 4 | Orquestador NVIDIA | [#12](https://github.com/caos1codex-hash/liz-ai-agent/issues/12) | ✅ |
 | 5 | Herramientas Base | [#13](https://github.com/caos1codex-hash/liz-ai-agent/issues/13) | ✅ |
 | 6 | Auto-Creacion | [#14](https://github.com/caos1codex-hash/liz-ai-agent/issues/14) | ✅ |
-| 7 | Pipeline de Chat | [#15](https://github.com/caos1codex-hash/liz-ai-agent/issues/15) | ⏳ |
+| 7 | Pipeline de Chat | [#15](https://github.com/caos1codex-hash/liz-ai-agent/issues/15) | End-to-end: mensaje → modelo → herramientas → respuesta | ✅ |
 | 8 | Frontend | [#16](https://github.com/caos1codex-hash/liz-ai-agent/issues/16) | ⏳ |
 | 9 | Testing y Docs | [#17](https://github.com/caos1codex-hash/liz-ai-agent/issues/17) | ⏳ |
 | 10 | Release v0.1.0 | [#18](https://github.com/caos1codex-hash/liz-ai-agent/issues/18) | ⏳ |
@@ -372,6 +372,83 @@ demás se cargan normalmente.
 - El `Cargador` captura panics del subprocess (exit code != 0) y los convierte en `Resultado.Exito=false` con stderr como Error.
 - El timeout del context se transmite al subprocess (SIGKILL tras expirar).
 - Solo se permite código con stdlib (sin imports externos) → minimiza superficie de ataque.
+
+## Sistema de Pipeline de Chat (Fase 7)
+
+El pipeline conecta todos los subsistemas existentes en un flujo end-to-end coherente:
+mensaje del usuario → clasificación de intención → planificación → ejecución de herramientas → respuesta.
+
+### Arquitectura
+
+```
+USUARIO: "Mata todos los procesos que consuman mas de 2GB de RAM"
+  │
+  ▼
+RECEPTOR: valida → crea/retoma sesión → almacena mensaje
+  │
+  ▼
+CLASIFICADOR: "gestión de procesos" (confianza: 0.85)
+  │  Heurísticas rápidas → LLM para casos ambiguos
+  ▼
+PLANIFICADOR: "paso 1: listar procesos, paso 2: filtrar por RAM > 2GB, paso 3: matar"
+  │  Selecciona herramientas necesarias, respeta dependencias
+  ▼
+EJECUTOR: ejecuta monitor → procesos (con auto-creación si falta herramienta)
+  │  Maneja timeouts, captura resultados, resuelve dependencias
+  ▼
+RESPONDEDOR: construye prompt con contexto + resultados → LLM → stream SSE
+  │
+  ▼
+"✅ Procesos terminados. Se encontraron 3 procesos, 2 eliminados."
+```
+
+### Componentes
+
+| Componente | Función |
+|-----------|---------|
+| **Receptor** | Valida entrada, gestiona sesiones, almacena mensajes |
+| **Clasificador** | 10 categorías, heurísticas + LLM, confianza 0-1 |
+| **Planificador** | Descompone en pasos, selecciona herramientas, respeta dependencias |
+| **Ejecutor** | Ejecuta secuencialmente, maneja timeouts, auto-creación |
+| **Respondedor** | Ensambla prompt completo, genera respuesta, streaming SSE |
+
+### Endpoints
+
+```
+POST   /api/v1/chat             # Enviar mensaje (JSON o SSE)
+GET    /api/v1/chat             # Estado del pipeline + métricas
+GET    /api/v1/chat/metricas     # Métricas detalladas (por categoría, modelo)
+GET    /api/v1/chat/sesiones      # Listar sesiones de chat
+POST   /api/v1/chat/sesiones      # Crear nueva sesión
+GET    /api/v1/chat/sesiones/{id}  # Detalle + mensajes de sesión
+DELETE /api/v1/chat/sesiones/{id}  # Cerrar sesión
+```
+
+### Ejemplos de uso
+
+```bash
+# Chat simple (JSON)
+curl -X POST http://localhost:3000/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{"mensaje": "hola liz, que puedes hacer?"}'
+
+# Chat con streaming (SSE)
+curl -X POST http://localhost:3000/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -H "Accept: text/event-stream" \
+  -d '{"mensaje": "lista los procesos que consumen mas RAM", "stream": true}'
+
+# Chat con contexto de proyecto
+curl -X POST http://localhost:3000/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{"mensaje": "que hace el main.go?", "proyecto": "mi-proyecto"}'
+
+# Ver estado del pipeline
+curl http://localhost:3000/api/v1/chat
+
+# Ver métricas
+curl http://localhost:3000/api/v1/chat/metricas
+```
 
 ## Stack
 
