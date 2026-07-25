@@ -7,6 +7,7 @@ import (
         "net/http"
         "os"
         "os/signal"
+        "path/filepath"
         "syscall"
         "time"
 
@@ -112,12 +113,43 @@ func (s *Servidor) registrarRutas() {
         s.router.HandleFunc("/api/v1/permisos/resumen", s.handlerPermisosResumen).Methods("GET", "OPTIONS")
         s.router.HandleFunc("/api/v1/permisos/auditoria", s.handlerPermisosAuditoria).Methods("GET", "OPTIONS")
 
-        // --- Stubs Fase 3+ (sin implementar) ---
+        // --- Contexto (Fase 3) ---
+        s.router.HandleFunc("/api/v1/contexto/proyectos", s.handlerContextoProyectos).Methods("GET", "OPTIONS")
+        s.router.HandleFunc("/api/v1/contexto/proyectos", s.handlerContextoIndexar).Methods("POST", "OPTIONS")
+        s.router.HandleFunc("/api/v1/contexto/proyectos/{nombre}", s.handlerContextoEliminar).Methods("DELETE", "OPTIONS")
+        s.router.HandleFunc("/api/v1/contexto/proyectos/{nombre}/mapa", s.handlerContextoMapa).Methods("GET", "OPTIONS")
+        s.router.HandleFunc("/api/v1/contexto/proyectos/{nombre}/indice", s.handlerContextoIndice).Methods("GET", "OPTIONS")
+        s.router.HandleFunc("/api/v1/contexto/proyectos/{nombre}/arbol", s.handlerContextoArbol).Methods("GET", "OPTIONS")
+        s.router.HandleFunc("/api/v1/contexto/proyectos/{nombre}/fragmentos", s.handlerContextoFragmentosPorRuta).Methods("GET", "OPTIONS")
+        s.router.HandleFunc("/api/v1/contexto/proyectos/{nombre}/fragmentos/{id}", s.handlerContextoFragmento).Methods("GET", "OPTIONS")
+        s.router.HandleFunc("/api/v1/contexto/proyectos/{nombre}/buscar", s.handlerContextoBuscar).Methods("GET", "OPTIONS")
+        s.router.HandleFunc("/api/v1/contexto/proyectos/{nombre}/resumen", s.handlerContextoResumen).Methods("GET", "OPTIONS")
+        s.router.HandleFunc("/api/v1/contexto/proyectos/{nombre}/reindexar", s.handlerContextoReindexar).Methods("POST", "OPTIONS")
+
+        // --- Stubs Fase 4+ (sin implementar) ---
         s.router.HandleFunc("/api/v1/tools", s.handlerStub("tools")).Methods("GET", "OPTIONS")
         s.router.HandleFunc("/api/v1/orquestador", s.handlerStub("orquestador")).Methods("GET", "OPTIONS")
         s.router.HandleFunc("/api/v1/modelos", s.handlerStub("modelos")).Methods("GET", "OPTIONS")
         s.router.HandleFunc("/api/v1/conversations", s.handlerStub("conversations")).Methods("GET", "OPTIONS")
         s.router.HandleFunc("/api/v1/chat", s.handlerStub("chat")).Methods("POST", "OPTIONS")
+}
+
+// ConCoordinador inyecta el coordinador de contexto en el servidor.
+// Debe llamarse antes de Iniciar().
+func (s *Servidor) ConCoordinador(coordinador *contexto.Coordinador) *Servidor {
+        s.gestorCtx = coordinador
+        return s
+}
+
+// requiereCoordinador verifica que el coordinador esté disponible.
+// Si no lo está, responde 503 Service Unavailable y retorna false.
+func (s *Servidor) requiereCoordinador(w http.ResponseWriter) bool {
+        if s.gestorCtx == nil {
+                s.responderError(w, http.StatusServiceUnavailable,
+                        "coordinador de contexto no disponible (Fase 3 no inicializada)")
+                return false
+        }
+        return true
 }
 
 // registrarMiddlewares aplica los middlewares globales al router.
@@ -511,4 +543,346 @@ func (s *Servidor) Detener() error {
         ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
         defer cancel()
         return s.httpServ.Shutdown(ctx)
+}
+// ============================================================================
+// Handlers — Contexto (Fase 3)
+// ============================================================================
+
+// SolicitudIndexarProyecto es el body para POST /api/v1/contexto/proyectos.
+type SolicitudIndexarProyecto struct {
+        Ruta string `json:"ruta"`
+}
+
+// SolicitudReindexar es el body para POST /api/v1/contexto/proyectos/{nombre}/reindexar.
+type SolicitudReindexar struct {
+        Ruta string `json:"ruta"` // ruta relativa del archivo a reindexar (opcional)
+}
+
+// handlerContextoProyectos — GET /api/v1/contexto/proyectos
+// Lista todos los proyectos indexados.
+func (s *Servidor) handlerContextoProyectos(w http.ResponseWriter, r *http.Request) {
+        if !s.requiereCoordinador(w) {
+                return
+        }
+
+        proyectos := s.gestorCtx.ListarProyectos()
+        s.responderJSON(w, http.StatusOK, RespuestaAPI{
+                Exito:     true,
+                Datos:     proyectos,
+                Timestamp: time.Now().Format(time.RFC3339),
+        })
+}
+
+// handlerContextoIndexar — POST /api/v1/contexto/proyectos
+// Indexa un nuevo proyecto (o re-indexa uno existente).
+// Body: {"ruta": "/path/al/proyecto"}
+func (s *Servidor) handlerContextoIndexar(w http.ResponseWriter, r *http.Request) {
+        if !s.requiereCoordinador(w) {
+                return
+        }
+
+        var req SolicitudIndexarProyecto
+        if err := s.parsearBody(r, &req); err != nil {
+                s.responderError(w, http.StatusBadRequest, "body inválido: "+err.Error())
+                return
+        }
+
+        if req.Ruta == "" {
+                s.responderError(w, http.StatusBadRequest, "campo 'ruta' es requerido")
+                return
+        }
+
+        estado, err := s.gestorCtx.IndexarProyecto(req.Ruta)
+        if err != nil {
+                s.responderError(w, http.StatusInternalServerError, "error indexando: "+err.Error())
+                return
+        }
+
+        s.responderJSON(w, http.StatusCreated, RespuestaAPI{
+                Exito:     true,
+                Mensaje:   "proyecto indexado correctamente",
+                Datos:     estado,
+                Timestamp: time.Now().Format(time.RFC3339),
+        })
+}
+
+// handlerContextoEliminar — DELETE /api/v1/contexto/proyectos/{nombre}
+// Elimina un proyecto y todos sus datos del disco.
+func (s *Servidor) handlerContextoEliminar(w http.ResponseWriter, r *http.Request) {
+        if !s.requiereCoordinador(w) {
+                return
+        }
+
+        vars := mux.Vars(r)
+        nombre := vars["nombre"]
+        if nombre == "" {
+                s.responderError(w, http.StatusBadRequest, "nombre de proyecto requerido")
+                return
+        }
+
+        if err := s.gestorCtx.EliminarProyecto(nombre); err != nil {
+                s.responderError(w, http.StatusNotFound, err.Error())
+                return
+        }
+
+        s.responderJSON(w, http.StatusOK, RespuestaAPI{
+                Exito:     true,
+                Mensaje:   "proyecto eliminado",
+                Timestamp: time.Now().Format(time.RFC3339),
+        })
+}
+
+// handlerContextoMapa — GET /api/v1/contexto/proyectos/{nombre}/mapa
+// Retorna el mapa (catálogo de la biblioteca) del proyecto.
+func (s *Servidor) handlerContextoMapa(w http.ResponseWriter, r *http.Request) {
+        if !s.requiereCoordinador(w) {
+                return
+        }
+
+        nombre := mux.Vars(r)["nombre"]
+        mapa, err := s.gestorCtx.ObtenerMapa(nombre)
+        if err != nil {
+                s.responderError(w, http.StatusNotFound, err.Error())
+                return
+        }
+
+        s.responderJSON(w, http.StatusOK, RespuestaAPI{
+                Exito:     true,
+                Datos:     mapa,
+                Timestamp: time.Now().Format(time.RFC3339),
+        })
+}
+
+// handlerContextoIndice — GET /api/v1/contexto/proyectos/{nombre}/indice
+// Retorna el índice (mapa plano de archivos → fragmentos) del proyecto.
+func (s *Servidor) handlerContextoIndice(w http.ResponseWriter, r *http.Request) {
+        if !s.requiereCoordinador(w) {
+                return
+        }
+
+        nombre := mux.Vars(r)["nombre"]
+        indice, err := s.gestorCtx.ObtenerIndice(nombre)
+        if err != nil {
+                s.responderError(w, http.StatusNotFound, err.Error())
+                return
+        }
+
+        s.responderJSON(w, http.StatusOK, RespuestaAPI{
+                Exito:     true,
+                Datos:     indice,
+                Timestamp: time.Now().Format(time.RFC3339),
+        })
+}
+
+// handlerContextoArbol — GET /api/v1/contexto/proyectos/{nombre}/arbol
+// Retorna la estructura jerárquica (árbol de directorios) del proyecto.
+func (s *Servidor) handlerContextoArbol(w http.ResponseWriter, r *http.Request) {
+        if !s.requiereCoordinador(w) {
+                return
+        }
+
+        nombre := mux.Vars(r)["nombre"]
+        arbol, err := s.gestorCtx.ObtenerArbol(nombre)
+        if err != nil {
+                s.responderError(w, http.StatusNotFound, err.Error())
+                return
+        }
+
+        s.responderJSON(w, http.StatusOK, RespuestaAPI{
+                Exito:     true,
+                Datos:     arbol,
+                Timestamp: time.Now().Format(time.RFC3339),
+        })
+}
+
+// handlerContextoFragmentosPorRuta — GET /api/v1/contexto/proyectos/{nombre}/fragmentos?ruta=X
+// Retorna todos los fragmentos de un archivo (por su ruta relativa).
+func (s *Servidor) handlerContextoFragmentosPorRuta(w http.ResponseWriter, r *http.Request) {
+        if !s.requiereCoordinador(w) {
+                return
+        }
+
+        nombre := mux.Vars(r)["nombre"]
+        ruta := r.URL.Query().Get("ruta")
+        if ruta == "" {
+                s.responderError(w, http.StatusBadRequest, "parámetro 'ruta' es requerido")
+                return
+        }
+
+        frags, err := s.gestorCtx.ObtenerFragmentosPorRuta(nombre, ruta)
+        if err != nil {
+                s.responderError(w, http.StatusNotFound, err.Error())
+                return
+        }
+
+        s.responderJSON(w, http.StatusOK, RespuestaAPI{
+                Exito:     true,
+                Datos:     frags,
+                Timestamp: time.Now().Format(time.RFC3339),
+        })
+}
+
+// handlerContextoFragmento — GET /api/v1/contexto/proyectos/{nombre}/fragmentos/{id}
+// Retorna un fragmento por su ID.
+// Esto es la mitad "Liz entrega solo ese archivo" del ciclo del catálogo.
+func (s *Servidor) handlerContextoFragmento(w http.ResponseWriter, r *http.Request) {
+        if !s.requiereCoordinador(w) {
+                return
+        }
+
+        vars := mux.Vars(r)
+        nombre := vars["nombre"]
+        id := vars["id"]
+
+        frag, err := s.gestorCtx.ObtenerFragmento(nombre, id)
+        if err != nil {
+                s.responderError(w, http.StatusNotFound, err.Error())
+                return
+        }
+
+        s.responderJSON(w, http.StatusOK, RespuestaAPI{
+                Exito:     true,
+                Datos:     frag,
+                Timestamp: time.Now().Format(time.RFC3339),
+        })
+}
+
+// handlerContextoBuscar — GET /api/v1/contexto/proyectos/{nombre}/buscar?patron=X
+// Busca en el índice por patrón (substring case-insensitive).
+func (s *Servidor) handlerContextoBuscar(w http.ResponseWriter, r *http.Request) {
+        if !s.requiereCoordinador(w) {
+                return
+        }
+
+        nombre := mux.Vars(r)["nombre"]
+        patron := r.URL.Query().Get("patron")
+        if patron == "" {
+                s.responderError(w, http.StatusBadRequest, "parámetro 'patron' es requerido")
+                return
+        }
+
+        resultados := s.gestorCtx.BuscarEnIndice(nombre, patron)
+        s.responderJSON(w, http.StatusOK, RespuestaAPI{
+                Exito:     true,
+                Datos:     resultados,
+                Timestamp: time.Now().Format(time.RFC3339),
+        })
+}
+
+// handlerContextoResumen — GET /api/v1/contexto/proyectos/{nombre}/resumen?ruta=X
+// Retorna el resumen detallado de un archivo (exportados, importados, complejidad).
+// Usa cache/persistencia; usar ?forzar=true para regenerar.
+func (s *Servidor) handlerContextoResumen(w http.ResponseWriter, r *http.Request) {
+        if !s.requiereCoordinador(w) {
+                return
+        }
+
+        nombre := mux.Vars(r)["nombre"]
+        rutaRelativa := r.URL.Query().Get("ruta")
+        if rutaRelativa == "" {
+                s.responderError(w, http.StatusBadRequest, "parámetro 'ruta' es requerido")
+                return
+        }
+        forzar := r.URL.Query().Get("forzar") == "true"
+
+        // Necesitamos la ruta absoluta del proyecto para resolver el archivo
+        proyectos := s.gestorCtx.ListarProyectos()
+        var rutaProyecto string
+        for _, p := range proyectos {
+                if p.Nombre == nombre {
+                        rutaProyecto = p.Ruta
+                        break
+                }
+        }
+        if rutaProyecto == "" {
+                s.responderError(w, http.StatusNotFound, "proyecto no encontrado")
+                return
+        }
+
+        rutaAbsoluta := filepath.Join(rutaProyecto, rutaRelativa)
+
+        var resumen interface{}
+        var err error
+        if forzar {
+                resumen, err = s.gestorCtx.ForzarResumen(nombre, rutaRelativa, rutaAbsoluta)
+        } else {
+                resumen, err = s.gestorCtx.ObtenerResumen(nombre, rutaRelativa, rutaAbsoluta)
+        }
+        if err != nil {
+                s.responderError(w, http.StatusInternalServerError, err.Error())
+                return
+        }
+
+        s.responderJSON(w, http.StatusOK, RespuestaAPI{
+                Exito:     true,
+                Datos:     resumen,
+                Timestamp: time.Now().Format(time.RFC3339),
+        })
+}
+
+// handlerContextoReindexar — POST /api/v1/contexto/proyectos/{nombre}/reindexar
+// Re-indexa todo el proyecto (si body.ruta == "") o un solo archivo (si body.ruta != "").
+func (s *Servidor) handlerContextoReindexar(w http.ResponseWriter, r *http.Request) {
+        if !s.requiereCoordinador(w) {
+                return
+        }
+
+        nombre := mux.Vars(r)["nombre"]
+
+        var req SolicitudReindexar
+        // Body opcional; si no se pasa, se asume reindexar todo
+        _ = s.parsearBody(r, &req)
+
+        if req.Ruta != "" {
+                // Reindexar un solo archivo
+                if err := s.gestorCtx.ReindexarArchivo(nombre, req.Ruta); err != nil {
+                        s.responderError(w, http.StatusInternalServerError, err.Error())
+                        return
+                }
+                s.responderJSON(w, http.StatusOK, RespuestaAPI{
+                        Exito:     true,
+                        Mensaje:   "archivo reindexado: " + req.Ruta,
+                        Timestamp: time.Now().Format(time.RFC3339),
+                })
+                return
+        }
+
+        // Reindexar todo el proyecto: necesitamos la ruta absoluta del proyecto
+        proyectos := s.gestorCtx.ListarProyectos()
+        var rutaProyecto string
+        for _, p := range proyectos {
+                if p.Nombre == nombre {
+                        rutaProyecto = p.Ruta
+                        break
+                }
+        }
+        if rutaProyecto == "" {
+                s.responderError(w, http.StatusNotFound, "proyecto no encontrado")
+                return
+        }
+
+        estado, err := s.gestorCtx.IndexarProyecto(rutaProyecto)
+        if err != nil {
+                s.responderError(w, http.StatusInternalServerError, err.Error())
+                return
+        }
+        s.responderJSON(w, http.StatusOK, RespuestaAPI{
+                Exito:     true,
+                Mensaje:   "proyecto reindexado",
+                Datos:     estado,
+                Timestamp: time.Now().Format(time.RFC3339),
+        })
+}
+
+// parsearBody decodifica JSON del body en dst. Retorna error si es inválido.
+// Body vacío no es error (útil para endpoints con body opcional).
+func (s *Servidor) parsearBody(r *http.Request, dst interface{}) error {
+        if r.Body == nil {
+                return nil
+        }
+        defer r.Body.Close()
+        if r.ContentLength == 0 {
+                return nil
+        }
+        return json.NewDecoder(r.Body).Decode(dst)
 }

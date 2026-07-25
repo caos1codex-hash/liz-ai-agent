@@ -2,6 +2,7 @@ package servidor
 
 import (
         "encoding/json"
+        "fmt"
         "io"
         "net/http"
         "net/http/httptest"
@@ -11,6 +12,7 @@ import (
         "testing"
 
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/config"
+        "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/logger"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/permisos"
 )
@@ -492,5 +494,412 @@ func TestRutaNoExistente(t *testing.T) {
 
         if rec.Code != http.StatusNotFound {
                 t.Errorf("Status = %d, se esperaba %d para ruta inexistente", rec.Code, http.StatusNotFound)
+        }
+}
+// ============================================================================
+// Tests de Endpoints de Contexto (Fase 3)
+// ============================================================================
+
+// setupTestServidorConContexto crea un servidor con coordinador de contexto inyectado.
+func setupTestServidorConContexto(t *testing.T) (*Servidor, *contexto.Coordinador, string) {
+        t.Helper()
+
+        tmpDir := t.TempDir()
+        rutaCfg := filepath.Join(tmpDir, "config.yaml")
+        os.WriteFile(rutaCfg, []byte("liz:\n  puerto: 8080\n  nombre: Liz\n  version: 0.3.0\n"), 0644)
+
+        log := logger.NuevaConSalida("test", io.Discard)
+        gestorCfg, _ := config.Inicializar(rutaCfg)
+        gestorPer, _ := permisos.Inicializar(tmpDir)
+
+        // Crear coordinador de contexto
+        dirContexto := filepath.Join(tmpDir, "contexto")
+        coordinador, err := contexto.NuevoCoordinador(dirContexto)
+        if err != nil {
+                t.Fatalf("NuevoCoordinador: %v", err)
+        }
+
+        srv := Nuevo(gestorCfg, gestorPer, log).ConCoordinador(coordinador)
+        return srv, coordinador, tmpDir
+}
+
+// crearProyectoDirTest crea un proyecto Go pequeño en un directorio temporal.
+func crearProyectoDirTest(t *testing.T) string {
+        t.Helper()
+        dir := t.TempDir()
+        os.MkdirAll(filepath.Join(dir, "src"), 0755)
+
+        os.WriteFile(filepath.Join(dir, "main.go"), []byte(`package main
+
+import "fmt"
+
+func main() {
+        fmt.Println("hola")
+}
+
+func saludar() string {
+        return "hola"
+}
+`), 0644)
+
+        os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Test\n"), 0644)
+
+        os.WriteFile(filepath.Join(dir, "src", "auth.go"), []byte(`package src
+
+type Usuario struct {
+        Nombre string
+}
+
+func Autenticar(u Usuario) bool {
+        return u.Nombre != ""
+}
+`), 0644)
+
+        return dir
+}
+
+func TestHandlerContexto_SinCoordinador_Da503(t *testing.T) {
+        // Servidor sin coordinador debe responder 503 a endpoints de contexto
+        srv, _, _ := setupTestServidor(t)
+
+        req := httptest.NewRequest("GET", "/api/v1/contexto/proyectos", nil)
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusServiceUnavailable {
+                t.Errorf("Status = %d, se esperaba 503", rec.Code)
+        }
+}
+
+func TestHandlerContextoProyectos_Vacio(t *testing.T) {
+        srv, _, _ := setupTestServidorConContexto(t)
+
+        req := httptest.NewRequest("GET", "/api/v1/contexto/proyectos", nil)
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusOK {
+                t.Errorf("Status = %d, se esperaba 200 (body: %s)", rec.Code, rec.Body.String())
+        }
+
+        resp := parseRespuesta(t, rec.Body.Bytes())
+        if resp["exito"] != true {
+                t.Error("exito debería ser true")
+        }
+}
+
+func TestHandlerContextoIndexar_Y_ObtenerMapa(t *testing.T) {
+        srv, _, _ := setupTestServidorConContexto(t)
+        proyectoDir := crearProyectoDirTest(t)
+
+        // Indexar
+        body := fmt.Sprintf(`{"ruta": %q}`, proyectoDir)
+        req := httptest.NewRequest("POST", "/api/v1/contexto/proyectos", strings.NewReader(body))
+        req.Header.Set("Content-Type", "application/json")
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusCreated {
+                t.Fatalf("Status = %d, se esperaba 201 (body: %s)", rec.Code, rec.Body.String())
+        }
+
+        // Obtener nombre del proyecto del response
+        resp := parseRespuesta(t, rec.Body.Bytes())
+        datos, ok := resp["datos"].(map[string]interface{})
+        if !ok {
+                t.Fatalf("datos no es map: %T", resp["datos"])
+        }
+        nombre, ok := datos["nombre"].(string)
+        if !ok || nombre == "" {
+                t.Fatalf("nombre no encontrado en response")
+        }
+
+        // Listar proyectos debe tener 1 ahora
+        req = httptest.NewRequest("GET", "/api/v1/contexto/proyectos", nil)
+        rec = httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+        resp = parseRespuesta(t, rec.Body.Bytes())
+        if resp["exito"] != true {
+                t.Error("exito debería ser true")
+        }
+
+        // Obtener mapa
+        req = httptest.NewRequest("GET", "/api/v1/contexto/proyectos/"+nombre+"/mapa", nil)
+        rec = httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+        if rec.Code != http.StatusOK {
+                t.Errorf("mapa: Status = %d, se esperaba 200 (body: %s)", rec.Code, rec.Body.String())
+        }
+}
+
+func TestHandlerContextoIndexar_BodyInvalido(t *testing.T) {
+        srv, _, _ := setupTestServidorConContexto(t)
+
+        req := httptest.NewRequest("POST", "/api/v1/contexto/proyectos", strings.NewReader("not json"))
+        req.Header.Set("Content-Type", "application/json")
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusBadRequest {
+                t.Errorf("Status = %d, se esperaba 400", rec.Code)
+        }
+}
+
+func TestHandlerContextoIndexar_SinRuta(t *testing.T) {
+        srv, _, _ := setupTestServidorConContexto(t)
+
+        req := httptest.NewRequest("POST", "/api/v1/contexto/proyectos", strings.NewReader(`{}`))
+        req.Header.Set("Content-Type", "application/json")
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusBadRequest {
+                t.Errorf("Status = %d, se esperaba 400 (body: %s)", rec.Code, rec.Body.String())
+        }
+}
+
+func TestHandlerContextoMapa_ProyectoInexistente(t *testing.T) {
+        srv, _, _ := setupTestServidorConContexto(t)
+
+        req := httptest.NewRequest("GET", "/api/v1/contexto/proyectos/no-existe/mapa", nil)
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusNotFound {
+                t.Errorf("Status = %d, se esperaba 404", rec.Code)
+        }
+}
+
+func TestHandlerContextoArbol(t *testing.T) {
+        srv, _, _ := setupTestServidorConContexto(t)
+        proyectoDir := crearProyectoDirTest(t)
+
+        // Indexar
+        body := fmt.Sprintf(`{"ruta": %q}`, proyectoDir)
+        req := httptest.NewRequest("POST", "/api/v1/contexto/proyectos", strings.NewReader(body))
+        req.Header.Set("Content-Type", "application/json")
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        resp := parseRespuesta(t, rec.Body.Bytes())
+        nombre := resp["datos"].(map[string]interface{})["nombre"].(string)
+
+        // Obtener árbol
+        req = httptest.NewRequest("GET", "/api/v1/contexto/proyectos/"+nombre+"/arbol", nil)
+        rec = httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusOK {
+                t.Errorf("arbol: Status = %d, se esperaba 200 (body: %s)", rec.Code, rec.Body.String())
+        }
+
+        resp = parseRespuesta(t, rec.Body.Bytes())
+        if resp["exito"] != true {
+                t.Error("exito debería ser true")
+        }
+}
+
+func TestHandlerContextoFragmentosPorRuta(t *testing.T) {
+        srv, _, _ := setupTestServidorConContexto(t)
+        proyectoDir := crearProyectoDirTest(t)
+
+        // Indexar
+        body := fmt.Sprintf(`{"ruta": %q}`, proyectoDir)
+        req := httptest.NewRequest("POST", "/api/v1/contexto/proyectos", strings.NewReader(body))
+        req.Header.Set("Content-Type", "application/json")
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+        resp := parseRespuesta(t, rec.Body.Bytes())
+        nombre := resp["datos"].(map[string]interface{})["nombre"].(string)
+
+        // Listar fragmentos de main.go
+        req = httptest.NewRequest("GET", "/api/v1/contexto/proyectos/"+nombre+"/fragmentos?ruta=main.go", nil)
+        rec = httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusOK {
+                t.Errorf("fragmentos: Status = %d, se esperaba 200 (body: %s)", rec.Code, rec.Body.String())
+        }
+}
+
+func TestHandlerContextoFragmentosPorRuta_SinParametro(t *testing.T) {
+        srv, _, _ := setupTestServidorConContexto(t)
+        proyectoDir := crearProyectoDirTest(t)
+
+        body := fmt.Sprintf(`{"ruta": %q}`, proyectoDir)
+        req := httptest.NewRequest("POST", "/api/v1/contexto/proyectos", strings.NewReader(body))
+        req.Header.Set("Content-Type", "application/json")
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+        resp := parseRespuesta(t, rec.Body.Bytes())
+        nombre := resp["datos"].(map[string]interface{})["nombre"].(string)
+
+        // Sin parámetro ruta debe dar 400
+        req = httptest.NewRequest("GET", "/api/v1/contexto/proyectos/"+nombre+"/fragmentos", nil)
+        rec = httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusBadRequest {
+                t.Errorf("Status = %d, se esperaba 400", rec.Code)
+        }
+}
+
+func TestHandlerContextoBuscar(t *testing.T) {
+        srv, _, _ := setupTestServidorConContexto(t)
+        proyectoDir := crearProyectoDirTest(t)
+
+        body := fmt.Sprintf(`{"ruta": %q}`, proyectoDir)
+        req := httptest.NewRequest("POST", "/api/v1/contexto/proyectos", strings.NewReader(body))
+        req.Header.Set("Content-Type", "application/json")
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+        resp := parseRespuesta(t, rec.Body.Bytes())
+        nombre := resp["datos"].(map[string]interface{})["nombre"].(string)
+
+        // Buscar "auth"
+        req = httptest.NewRequest("GET", "/api/v1/contexto/proyectos/"+nombre+"/buscar?patron=auth", nil)
+        rec = httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusOK {
+                t.Errorf("buscar: Status = %d, se esperaba 200 (body: %s)", rec.Code, rec.Body.String())
+        }
+}
+
+func TestHandlerContextoResumen(t *testing.T) {
+        srv, _, _ := setupTestServidorConContexto(t)
+        proyectoDir := crearProyectoDirTest(t)
+
+        body := fmt.Sprintf(`{"ruta": %q}`, proyectoDir)
+        req := httptest.NewRequest("POST", "/api/v1/contexto/proyectos", strings.NewReader(body))
+        req.Header.Set("Content-Type", "application/json")
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+        resp := parseRespuesta(t, rec.Body.Bytes())
+        nombre := resp["datos"].(map[string]interface{})["nombre"].(string)
+
+        // Obtener resumen de main.go
+        req = httptest.NewRequest("GET", "/api/v1/contexto/proyectos/"+nombre+"/resumen?ruta=main.go", nil)
+        rec = httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusOK {
+                t.Errorf("resumen: Status = %d, se esperaba 200 (body: %s)", rec.Code, rec.Body.String())
+        }
+
+        resp = parseRespuesta(t, rec.Body.Bytes())
+        datos, ok := resp["datos"].(map[string]interface{})
+        if !ok {
+                t.Fatal("datos no es map")
+        }
+        if datos["lenguaje"] != "go" {
+                t.Errorf("lenguaje = %v, se esperaba 'go'", datos["lenguaje"])
+        }
+}
+
+func TestHandlerContextoEliminar(t *testing.T) {
+        srv, _, _ := setupTestServidorConContexto(t)
+        proyectoDir := crearProyectoDirTest(t)
+
+        body := fmt.Sprintf(`{"ruta": %q}`, proyectoDir)
+        req := httptest.NewRequest("POST", "/api/v1/contexto/proyectos", strings.NewReader(body))
+        req.Header.Set("Content-Type", "application/json")
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+        resp := parseRespuesta(t, rec.Body.Bytes())
+        nombre := resp["datos"].(map[string]interface{})["nombre"].(string)
+
+        // Eliminar
+        req = httptest.NewRequest("DELETE", "/api/v1/contexto/proyectos/"+nombre, nil)
+        rec = httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusOK {
+                t.Errorf("eliminar: Status = %d, se esperaba 200 (body: %s)", rec.Code, rec.Body.String())
+        }
+
+        // Verificar que ya no está
+        req = httptest.NewRequest("GET", "/api/v1/contexto/proyectos/"+nombre+"/mapa", nil)
+        rec = httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+        if rec.Code != http.StatusNotFound {
+                t.Errorf("después de eliminar: Status = %d, se esperaba 404", rec.Code)
+        }
+}
+
+func TestHandlerContextoReindexar_TodoElProyecto(t *testing.T) {
+        srv, _, _ := setupTestServidorConContexto(t)
+        proyectoDir := crearProyectoDirTest(t)
+
+        body := fmt.Sprintf(`{"ruta": %q}`, proyectoDir)
+        req := httptest.NewRequest("POST", "/api/v1/contexto/proyectos", strings.NewReader(body))
+        req.Header.Set("Content-Type", "application/json")
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+        resp := parseRespuesta(t, rec.Body.Bytes())
+        nombre := resp["datos"].(map[string]interface{})["nombre"].(string)
+
+        // Reindexar todo
+        req = httptest.NewRequest("POST", "/api/v1/contexto/proyectos/"+nombre+"/reindexar", nil)
+        rec = httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusOK {
+                t.Errorf("reindexar: Status = %d, se esperaba 200 (body: %s)", rec.Code, rec.Body.String())
+        }
+}
+
+func TestHandlerContextoReindexar_ArchivoUnico(t *testing.T) {
+        srv, _, _ := setupTestServidorConContexto(t)
+        proyectoDir := crearProyectoDirTest(t)
+
+        body := fmt.Sprintf(`{"ruta": %q}`, proyectoDir)
+        req := httptest.NewRequest("POST", "/api/v1/contexto/proyectos", strings.NewReader(body))
+        req.Header.Set("Content-Type", "application/json")
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+        resp := parseRespuesta(t, rec.Body.Bytes())
+        nombre := resp["datos"].(map[string]interface{})["nombre"].(string)
+
+        // Reindexar main.go
+        req = httptest.NewRequest("POST", "/api/v1/contexto/proyectos/"+nombre+"/reindexar",
+                strings.NewReader(`{"ruta":"main.go"}`))
+        req.Header.Set("Content-Type", "application/json")
+        rec = httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusOK {
+                t.Errorf("reindexar archivo: Status = %d, se esperaba 200 (body: %s)", rec.Code, rec.Body.String())
+        }
+}
+
+func TestHandlerContextoIndice(t *testing.T) {
+        srv, _, _ := setupTestServidorConContexto(t)
+        proyectoDir := crearProyectoDirTest(t)
+
+        body := fmt.Sprintf(`{"ruta": %q}`, proyectoDir)
+        req := httptest.NewRequest("POST", "/api/v1/contexto/proyectos", strings.NewReader(body))
+        req.Header.Set("Content-Type", "application/json")
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+        resp := parseRespuesta(t, rec.Body.Bytes())
+        nombre := resp["datos"].(map[string]interface{})["nombre"].(string)
+
+        // Obtener índice
+        req = httptest.NewRequest("GET", "/api/v1/contexto/proyectos/"+nombre+"/indice", nil)
+        rec = httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusOK {
+                t.Errorf("indice: Status = %d, se esperaba 200 (body: %s)", rec.Code, rec.Body.String())
+        }
+
+        resp = parseRespuesta(t, rec.Body.Bytes())
+        datos, ok := resp["datos"].(map[string]interface{})
+        if !ok {
+                t.Fatal("datos no es map")
+        }
+        if datos["total_archivos"] == nil {
+                t.Error("total_archivos debería estar presente")
         }
 }
