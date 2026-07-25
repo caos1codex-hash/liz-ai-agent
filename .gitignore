@@ -1,18 +1,9 @@
 # Binarios
-/liz
 bin/
-*.exe
+liz
 
 # Go
 vendor/
-
-# Configuracion con secrets
-configs/liz-local.yaml
-
-# Frontend
-web/node_modules/
-web/dist/
-web/.vite/
 
 # IDE
 .idea/
@@ -24,5 +15,11 @@ web/.vite/
 .DS_Store
 Thumbs.db
 
-# Liz runtime data
-*.log
+# Liz runtime
+configs/liz.yaml
+
+# Go local install
+go-local/
+
+# Test cache
+testcache/

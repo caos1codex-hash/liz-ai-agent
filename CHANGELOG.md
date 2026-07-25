@@ -19,6 +19,16 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/).
 - Orquestador multi-modelo disenado
 - Interfaz de herramientas estandar (Go interface)
 
+### Fase 1 — Nucleo Base (completada)
+- **cmd/liz/main.go** — Punto de entrada del binario con banner ASCII y graceful shutdown
+- **internal/nucleo/logger/** — Logging estructurado en JSON con colores, niveles filtrables, escritura a ~/.liz/logs/liz.log
+- **internal/nucleo/config/** — Lectura de configuracion YAML con soporte para wrapper `liz:`, valores por defecto, overrides por env vars (LIZ_PUERTO, NVIDIA_API_KEY, LIZ_HOST), expansion de ~, y creacion automatica de ~/.liz/
+- **internal/nucleo/permisos/** — Sistema de permisos "una vez" (D-006): 6 permisos predefinidos, concesion individual o total, persistencia en ~/.liz/permisos.json, verificacion en tiempo real
+- **internal/nucleo/servidor/** — Servidor HTTP con gorilla/mux, 14 endpoints de API (health, config, permisos, tools, orquestador, conversations, chat), middleware CORS, logging, y recovery de panics
+- **Makefile** — Targets: build, run, dev, test, vet, fmt, lint, clean, install, help
+- **19 tests unitarios** pasando (logger: 5, config: 4, permisos: 8, servidor: 8)
+- Endpoints stub preparados para fases futuras (tools → Fase 5, orquestador → Fase 4, chat → Fase 7)
+
 ### Documentacion
 - docs/ARQUITECTURA.md — Documentacion completa del proyecto
 - docs/DECISIONES.md — Registro de 12 decisiones de diseno
@@ -33,7 +43,7 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/).
 
 | Fase | Nombre | Estado |
 |------|--------|--------|
-| 1 | Nucleo Base | Pendiente |
+| 1 | Nucleo Base | Completada |
 | 2 | Permisos y Configuracion | Pendiente |
 | 3 | Sistema de Contexto | Pendiente |
 | 4 | Orquestador NVIDIA | Pendiente |
