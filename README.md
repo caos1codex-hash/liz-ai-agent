@@ -4,8 +4,8 @@
 > No es un chatbot. No es un asistente de codigo. Es un sistema operativo de IA.
 
 ![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8)
-![Phase](https://img.shields.io/badge/fase-5%20de%2010-orange)
-![Tests](https://img.shields.io/badge/tests-556%20pasando-brightgreen)
+![Phase](https://img.shields.io/badge/fase-6%20de%2010-orange)
+![Tests](https://img.shields.io/badge/tests-588%20pasando-brightgreen)
 
 ## Que hace Liz?
 
@@ -51,7 +51,7 @@ FRONTEND (React) ──SSE──> PIPELINE ──> ORQUESTADOR (8+ modelos NVIDI
 | 3 | Sistema de Contexto | [#11](https://github.com/caos1codex-hash/liz-ai-agent/issues/11) | ✅ |
 | 4 | Orquestador NVIDIA | [#12](https://github.com/caos1codex-hash/liz-ai-agent/issues/12) | ✅ |
 | 5 | Herramientas Base | [#13](https://github.com/caos1codex-hash/liz-ai-agent/issues/13) | ✅ |
-| 6 | Auto-Creacion | [#14](https://github.com/caos1codex-hash/liz-ai-agent/issues/14) | ⏳ |
+| 6 | Auto-Creacion | [#14](https://github.com/caos1codex-hash/liz-ai-agent/issues/14) | ✅ |
 | 7 | Pipeline de Chat | [#15](https://github.com/caos1codex-hash/liz-ai-agent/issues/15) | ⏳ |
 | 8 | Frontend | [#16](https://github.com/caos1codex-hash/liz-ai-agent/issues/16) | ⏳ |
 | 9 | Testing y Docs | [#17](https://github.com/caos1codex-hash/liz-ai-agent/issues/17) | ⏳ |
@@ -211,6 +211,167 @@ curl http://localhost:3000/api/v1/herramientas/metricas
 │  - último error, último uso                         │
 └─────────────────────────────────────────────────────┘
 ```
+
+## Sistema de Auto-Creación de Herramientas (Fase 6)
+
+Liz **nunca dice "no puedo"**: si necesita una herramienta que no tiene, la crea.
+La Fase 6 implementa el principio D-005 (Auto-Suficiencia) mediante un flujo
+completo **detectar → generar → compilar → cargar → registrar** que produce
+herramientas Go funcionales y las integra al catálogo existente.
+
+### Cómo funciona
+
+```
+USUARIO: "Comprime todos los .csv de /home/user/data"
+  │
+  ▼
+DETECTOR (LLM): "Reviso el catálogo... no tengo 'compresor'. Hace falta."
+  │  → Genera SpecHerramienta {nombre, descripción, parámetros}
+  ▼
+GENERADOR (LLM): "Escribo código Go que implementa la interfaz Herramienta
+                  vía protocolo subprocess (JSON stdin/stdout)."
+  │  → Produce fuente.go completo (solo stdlib)
+  ▼
+COMPILADOR: `go build -o herramienta fuente.go`
+  │  → Binario standalone (~2MB)
+  ▼
+CARGADOR: HerramientaSubproceso wraps el binario, implementa Herramienta
+  │  → Validar() invoca op="validar", Ejecutar() invoca op="ejecutar"
+  ▼
+REGISTRO: persiste en ~/.liz/herramientas/auto_creadas/{nombre}/
+  │  ├── fuente.go        (código fuente)
+  │  ├── herramienta      (binario)
+  │  ├── metadata.json    (spec + timestamps + stats)
+  │  └── compilacion.log  (logs)
+  ▼
+CATÁLOGO: registra la nueva herramienta → disponible inmediatamente
+  │
+  ▼
+"✅ Compresor creado y registrado. 1 herramienta nueva disponible."
+```
+
+### Arquitectura del paquete `auto_creacion`
+
+```
+internal/nucleo/herramientas/auto_creacion/
+├── doc.go              # Documentación completa del paquete
+├── tipos.go            # SpecHerramienta, MetadataHerramienta, SolicitudCreacion, ResultadoCreacion
+├── plantillas.go       # Prompts LLM + ejemplo protocolo + helpers ExtraerFuenteGo/ValidarFuenteGo
+├── detector.go         # Analiza petición + catálogo → identifica herramientas faltantes
+├── generador.go        # LLM produce código Go; fallback GenerarDesdePlantilla (sin LLM)
+├── compilador.go       # Ejecuta `go build` con timeout, captura logs
+├── cargador.go         # HerramientaSubproceso implementa Herramienta (subprocess JSON)
+├── registro.go         # Persistencia en disco + índice global
+├── gestor.go           # Orquesta flujo completo + CargarTodas + Recargar + Eliminar + Probar
+├── auto_creacion_test.go       # 18 tests unitarios
+└── integracion_test.go         # 14 tests de integración (compilación real + subprocess)
+```
+
+### Protocolo subprocess (Liz ↔ herramienta)
+
+Cada herramienta auto-creada es un binario Go standalone que se comunica
+con Liz por JSON sobre stdin/stdout. Esto es **más robusto que Go plugins**
+(no requiere versión exacta de Go, mismo module path, ni dependencias iguales)
+y aísla fallos (un panic no tira a Liz).
+
+```
+REQUEST (Liz → herramienta, una línea JSON por stdin):
+  {"operacion": "info|validar|ejecutar", "parametros": {...}, "timeout_ms": 5000}
+
+RESPONSE (herramienta → Liz, una línea JSON por stdout):
+  {"exito": true, "datos": <any>, "error": "", "metadata": {...}}
+```
+
+### Endpoints
+
+```
+# Detección y creación
+POST   /api/v1/herramientas/auto-crear                    # Flujo completo (detect→generar→compilar→registrar)
+POST   /api/v1/herramientas/detectar                      # Solo detectar (preview, sin crear)
+
+# Gestión de herramientas auto-creadas
+GET    /api/v1/herramientas/auto-creadas                  # Listar todas
+GET    /api/v1/herramientas/auto-creadas/{nombre}         # Info detallada + estadísticas
+DELETE /api/v1/herramientas/auto-creadas/{nombre}         # Eliminar (registro + catálogo + artifacts)
+
+# Operaciones
+POST   /api/v1/herramientas/auto-creadas/{nombre}/probar  # Ejecutar con parámetros de prueba
+POST   /api/v1/herramientas/auto-creadas/{nombre}/recargar # Recompilar desde fuente (con o sin LLM)
+
+# Inspección
+GET    /api/v1/herramientas/auto-creadas/{nombre}/fuente  # Ver código Go (texto plano)
+GET    /api/v1/herramientas/auto-creadas/{nombre}/log     # Ver log de última compilación
+```
+
+### Ejemplos de uso
+
+```bash
+# Detectar qué herramientas faltan para una petición
+curl -X POST http://localhost:3000/api/v1/herramientas/detectar \
+  -H "Content-Type: application/json" \
+  -d '{"descripcion": "Comprime todos los .csv y súbelos por SFTP a backup.example.com"}'
+
+# Crear una herramienta automáticamente (flujo completo)
+curl -X POST http://localhost:3000/api/v1/herramientas/auto-crear \
+  -H "Content-Type: application/json" \
+  -d '{"descripcion": "Compresor de archivos ZIP"}'
+
+# Crear con spec forzada (sin detector, útil para tests o creación manual)
+curl -X POST http://localhost:3000/api/v1/herramientas/auto-crear \
+  -H "Content-Type: application/json" \
+  -d '{
+    "forzar_spec": {
+      "nombre": "saludador",
+      "descripcion": "Saluda al usuario",
+      "categoria": "test",
+      "parametros": [
+        {"nombre": "nombre", "tipo": "string", "requerido": true, "descripcion": "A quién saludar"}
+      ]
+    }
+  }'
+
+# Listar herramientas auto-creadas
+curl http://localhost:3000/api/v1/herramientas/auto-creadas
+
+# Probar una herramienta
+curl -X POST http://localhost:3000/api/v1/herramientas/auto-creadas/saludador/probar \
+  -H "Content-Type: application/json" \
+  -d '{"parametros": {"nombre": "Mundo"}}'
+
+# Ver el código fuente generado
+curl http://localhost:3000/api/v1/herramientas/auto-creadas/saludador/fuente
+
+# Recompilar desde fuente (editar fuente.go a mano y recompilar)
+curl -X POST http://localhost:3000/api/v1/herramientas/auto-creadas/saludador/recargar \
+  -H "Content-Type: application/json" \
+  -d '{"usar_llm": false}'
+
+# Eliminar
+curl -X DELETE http://localhost:3000/api/v1/herramientas/auto-creadas/saludador
+```
+
+### Persistencia entre sesiones
+
+Las herramientas auto-creadas se guardan en `~/.liz/herramientas/auto_creadas/`
+y se **cargan automáticamente al iniciar Liz**. Si una herramienta no compila
+o falla al cargar, se marca en su metadata pero no aborta el arranque — las
+demás se cargan normalmente.
+
+### Modos de operación
+
+| Modo | LLM | Descripción |
+|------|-----|-------------|
+| **Completo** | ✅ | Detector+Generador usan LLM (NVIDIA) → herramientas reales y funcionales |
+| **Forzado** | ✅/❌ | Caller pasa `forzar_spec` o `forzar_nombre` → salta detector, usa LLM si hay |
+| **Fallback stub** | ❌ | Sin LLM: genera un stub compilable que responde info/validar pero en ejecutar retorna "no implementado" — útil para probar el flujo sin API key |
+
+### Seguridad
+
+- El código generado se compila y ejecuta con los permisos del usuario que corre Liz.
+- `Validar()` hace una prueba controlada (op="validar") sin side-effects.
+- El `Cargador` captura panics del subprocess (exit code != 0) y los convierte en `Resultado.Exito=false` con stderr como Error.
+- El timeout del context se transmite al subprocess (SIGKILL tras expirar).
+- Solo se permite código con stdlib (sin imports externos) → minimiza superficie de ataque.
 
 ## Stack
 

@@ -651,7 +651,7 @@ Características del frontend:
 | 3 | Sistema de Contexto | #11 | Mapa, fragmentos, árbol, resúmenes bajo demanda | ✅ |
 | 4 | Orquestador NVIDIA | #12 | API NVIDIA conectada, 8+ modelos, selección inteligente | ✅ |
 | 5 | Herramientas Base | #13 | 7 herramientas integradas funcionando | ✅ |
-| 6 | Auto-Creación | #14 | Liz se programa herramientas que no tiene | ⏳ |
+| 6 | Auto-Creación | #14 | Liz se programa herramientas que no tiene | ✅ |
 | 7 | Pipeline de Chat | #15 | End-to-end: mensaje → modelo → herramientas → respuesta | ⏳ |
 | 8 | Frontend | #16 | Interfaz ChatGPT clásico con streaming | ⏳ |
 | 9 | Testing y Docs | #17 | Tests, seguridad, documentación completa | ⏳ |
@@ -755,6 +755,139 @@ POST /api/v1/herramientas/ejecutar
 
 ---
 
+## 12.ter Fase 6 — Auto-Creación de Herramientas (Detalle)
+
+### Visión General
+
+La Fase 6 implementa el principio D-005 (Auto-Suficiencia): Liz **nunca dice
+"no puedo"**. Si necesita una herramienta que no tiene, la crea automáticamente
+usando el LLM para generar código Go, lo compila, lo valida, lo persiste y lo
+registra en el catálogo — todo sin intervención humana.
+
+### Arquitectura del Sistema
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                       Gestor (orchestrator)                       │
+│   detectar → generar → compilar → cargar → registrar              │
+└───────┬──────────┬──────────┬──────────┬──────────┬───────────────┘
+        │          │          │          │          │
+        ▼          ▼          ▼          ▼          ▼
+   Detector   Generador  Compilador  Cargador   Registro
+   (LLM)      (LLM)      (go build)  (subproc)  (JSON disco)
+```
+
+**6 componentes cooperantes** en `internal/nucleo/herramientas/auto_creacion/`:
+
+1. **Detector** (`detector.go`): analiza la petición del usuario + el catálogo
+   actual y usa el LLM para identificar qué herramientas faltan. Retorna una
+   lista de `SpecHerramienta` (nombre, descripción, parámetros, categoría,
+   razón).
+
+2. **Generador** (`generador.go`): toma una `SpecHerramienta` y pide al LLM
+   el código Go completo (package main, solo stdlib). Inyecta header con
+   metadata, valida estructura mínima. Fallback `GenerarDesdePlantilla`
+   produce un stub sin LLM (útil para tests y cuando no hay API key).
+
+3. **Compilador** (`compilador.go`): escribe `fuente.go` a disco y ejecuta
+   `go build -o herramienta fuente.go` con timeout configurable (default
+   60s). Captura stdout+stderr combinados en `compilacion.log`.
+
+4. **Cargador** (`cargador.go`): `HerramientaSubproceso` implementa la
+   interfaz `Herramienta` delegando al binario vía JSON sobre stdin/stdout.
+   Lazy-info cacheada, thread-safe, con estadísticas de uso (veces
+   ejecutada, exitosas, último error, último uso).
+
+5. **Registro** (`registro.go`): persistencia en `~/.liz/herramientas/
+   auto_creadas/{nombre}/` con estructura `{fuente.go, herramienta,
+   metadata.json, compilacion.log}` + índice global `registro.json`.
+
+6. **Gestor** (`gestor.go`): orquesta el flujo completo + carga inicial +
+   recarga + eliminación + prueba. Thread-safe con `sync.Mutex`.
+
+### Protocolo Subprocess (decisión clave)
+
+Cada herramienta auto-creada es un **binario Go standalone** (no un Go plugin)
+que se comunica con Liz por JSON sobre stdin/stdout:
+
+```
+REQUEST  (Liz → herramienta):  {"operacion": "info|validar|ejecutar", "parametros": {...}}
+RESPONSE (herramienta → Liz):  {"exito": true|false, "datos": <any>, "error": "", "metadata": {}}
+```
+
+**Por qué subprocess y no Go plugins:**
+- Aislamiento de fallos: un panic en la herramienta no tira a Liz.
+- Independencia de versión de Go: cada tool se compila sola.
+- Sin problemas de module path / dependencias compartidas.
+- Costo (fork+exec por llamada) aceptable para herramientas que típicamente
+  hacen operaciones de sistema (ya son lentas).
+
+### Operaciones del Gestor
+
+| Operación | Descripción |
+|-----------|-------------|
+| `Crear(ctx, SolicitudCreacion)` | Flujo completo: detect→generar→compilar→cargar→registrar |
+| `CargarTodas()` | Escanea el registro y carga todas las tools en el catálogo (al iniciar Liz) |
+| `Recargar(ctx, nombre, nuevoFuente, usarLLM)` | Recompila desde fuente (existente, manual o regenerada por LLM) |
+| `Eliminar(nombre)` | Quita del registro + catálogo + limpia artifacts en disco |
+| `Probar(ctx, nombre, params)` | Ejecuta con params arbitrarios, actualiza estadísticas |
+| `Listar()` | Metadata de todas las tools |
+| `Obtener(nombre)` | Metadata de una tool |
+| `LeerFuente(nombre)` | Código fuente Go |
+| `LeerLogCompilacion(nombre)` | Log de la última compilación |
+
+### Endpoints API (9 endpoints)
+
+```
+POST   /api/v1/herramientas/auto-crear                     # Flujo completo
+POST   /api/v1/herramientas/detectar                       # Solo detectar (preview)
+GET    /api/v1/herramientas/auto-creadas                   # Listar
+GET    /api/v1/herramientas/auto-creadas/{nombre}          # Info + estadísticas
+DELETE /api/v1/herramientas/auto-creadas/{nombre}          # Eliminar
+POST   /api/v1/herramientas/auto-creadas/{nombre}/probar   # Ejecutar
+POST   /api/v1/herramientas/auto-creadas/{nombre}/recargar # Recompilar
+GET    /api/v1/herramientas/auto-creadas/{nombre}/fuente   # Ver código Go
+GET    /api/v1/herramientas/auto-creadas/{nombre}/log      # Ver log compilación
+```
+
+### Persistencia entre sesiones
+
+Al iniciar Liz, el `Gestor.CargarTodas()` escanea el registro y carga todas
+las herramientas auto-creadas en el catálogo. Si una tool no compila o falla
+al cargar, se marca en su metadata pero no aborta el arranque — las demás
+se cargan normalmente.
+
+### Modos de operación
+
+| Modo | LLM | Cuándo se usa |
+|------|-----|---------------|
+| **Completo** | ✅ | Flujo normal: detector + generador usan LLM → herramientas reales |
+| **Forzado** | ✅/❌ | Caller pasa `forzar_spec` o `forzar_nombre` → salta detector |
+| **Fallback stub** | ❌ | Sin LLM: stub compilable que responde info/validar pero en ejecutar retorna "no implementado" |
+
+### Seguridad
+
+- El código generado se compila y ejecuta con los permisos del usuario.
+- `Validar()` hace una prueba controlada (op="validar") sin side-effects.
+- El `Cargador` captura panics del subprocess (exit code != 0) y los
+  convierte en `Resultado.Exito=false` con stderr como Error.
+- El timeout del context se transmite al subprocess (SIGKILL tras expirar).
+- Solo se permite código con stdlib (sin imports externos) → minimiza
+  superficie de ataque y garantiza `go build fuente.go` sin go.mod.
+
+### Tests (32 tests)
+
+- **18 unitarios**: tipos, plantillas, detector con mock LLM, generador con
+  mock LLM + stub fallback, parsing robusto de JSON.
+- **14 de integración**: compilador real con `go build`, cargador subprocess
+  end-to-end (compile + info + validar + ejecutar), registro persistencia
+  (guardar/obtener/listar/eliminar/estadísticas), gestor flujo completo
+  (crear/cargar-todas/eliminar/probar/recargar con y sin nuevo fuente).
+
+Todos los tests pasan con `go test -race ./...` en los 22 paquetes del proyecto.
+
+---
+
 ## 13. Comparación con la Competencia
 
 | Aspecto | Claude Code | Codex | Liz |
@@ -785,4 +918,4 @@ POST /api/v1/herramientas/ejecutar
 ---
 
 *Este documento es vivo. Se actualiza conforme avanza el desarrollo.*
-*Última actualización: 2026-07-26 — Fase 5: Herramientas Base completada*
+*Última actualización: 2026-07-26 — Fase 6: Auto-Creación de Herramientas completada*

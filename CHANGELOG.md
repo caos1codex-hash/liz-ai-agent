@@ -1,5 +1,133 @@
 # Changelog — Liz AI Agent
 
+## [0.6.0] — Fase 6: Auto-Creación de Herramientas
+
+> **Liz ahora se programa a sí misma. Si necesita una herramienta que no tiene,
+> la crea: detecta la necesidad, genera código Go con el LLM, lo compila, lo
+> valida, lo persiste y lo registra en el catálogo — todo sin intervención
+> humana. Liz nunca dice "no puedo".**
+
+### Sistema de Auto-Creación (`internal/nucleo/herramientas/auto_creacion/`)
+
+Nuevo paquete que implementa el principio D-005 (Auto-Suficiencia) con un
+flujo completo **detectar → generar → compilar → cargar → registrar**:
+
+- **`doc.go`**: documentación completa del paquete (visión, arquitectura,
+  protocolo subprocess, decisiones de diseño, seguridad)
+- **`tipos.go`**: tipos compartidos — `SpecHerramienta`,
+  `MetadataHerramienta`, `SolicitudCreacion`, `ResultadoCreacion`,
+  `SolicitudSubprocess`, `RespuestaSubprocess`, `ErrAutoCreacion`
+- **`plantillas.go`**: prompts LLM para detector y generador, ejemplo del
+  protocolo subprocess, helpers `ExtraerFuenteGo`/`ValidarFuenteGo`/
+  `InyectarHeader`
+- **`detector.go`**: analiza petición + catálogo → identifica herramientas
+  faltantes vía LLM; parsing robusto de JSON (bloque markdown o plano);
+  normalización y validación de specs
+- **`generador.go`**: LLM produce código Go completo; fallback
+  `GenerarDesdePlantilla` para tests sin API key
+- **`compilador.go`**: ejecuta `go build -o herramienta fuente.go` con
+  timeout, captura logs, gestiona path al binario `go`
+- **`cargador.go`**: `HerramientaSubproceso` implementa `Herramienta`
+  delegando al binario vía JSON stdin/stdout; lazy-info cacheada;
+  thread-safe; estadísticas de uso
+- **`registro.go`**: persistencia en disco con estructura por-herramienta
+  (fuente.go, herramienta, metadata.json, compilacion.log) + índice
+  global `registro.json`; thread-safe con `sync.RWMutex`
+- **`gestor.go`**: orquesta flujo completo + `CargarTodas` (carga inicial) +
+  `Recargar` (recompilar) + `Eliminar` + `Probar` + `Listar` + `Obtener` +
+  `LeerFuente` + `LeerLogCompilacion`
+
+### Protocolo Subprocess (decisión clave)
+
+Cada herramienta auto-creada es un **binario Go standalone** (no Go plugin)
+que se comunica con Liz por JSON sobre stdin/stdout:
+
+```
+REQUEST  (Liz → herramienta):  {"operacion": "info|validar|ejecutar", "parametros": {...}}
+RESPONSE (herramienta → Liz):  {"exito": true|false, "datos": <any>, "error": "", "metadata": {}}
+```
+
+**Por qué subprocess y no Go plugins:**
+- Aislamiento de fallos (un panic no tira a Liz)
+- Independencia de versión de Go (cada tool se compila sola)
+- Sin problemas de module path / dependencias compartidas
+- Costo (fork+exec) aceptable para herramientas que hacen ops de sistema
+
+### Persistencia entre sesiones
+
+Las herramientas auto-creadas se guardan en
+`~/.liz/herramientas/auto_creadas/{nombre}/`:
+
+```
+{nombre}/
+├── fuente.go         # código fuente Go
+├── herramienta       # binario compilado
+├── metadata.json     # spec + timestamps + estadísticas
+└── compilacion.log   # log de la última compilación
+```
+
+Al iniciar Liz, `Gestor.CargarTodas()` escanea el registro y carga todas
+las tools en el catálogo. Si una falla, se marca en metadata pero no aborta
+el arranque.
+
+### Endpoints API (9 nuevos)
+
+```
+POST   /api/v1/herramientas/auto-crear                     # Flujo completo
+POST   /api/v1/herramientas/detectar                       # Solo detectar (preview)
+GET    /api/v1/herramientas/auto-creadas                   # Listar
+GET    /api/v1/herramientas/auto-creadas/{nombre}          # Info + estadísticas
+DELETE /api/v1/herramientas/auto-creadas/{nombre}          # Eliminar
+POST   /api/v1/herramientas/auto-creadas/{nombre}/probar   # Ejecutar
+POST   /api/v1/herramientas/auto-creadas/{nombre}/recargar # Recompilar
+GET    /api/v1/herramientas/auto-creadas/{nombre}/fuente   # Ver código Go
+GET    /api/v1/herramientas/auto-creadas/{nombre}/log      # Ver log compilación
+```
+
+### Modos de operación
+
+| Modo | LLM | Cuándo se usa |
+|------|-----|---------------|
+| **Completo** | ✅ | Detector + Generador usan LLM → herramientas reales |
+| **Forzado** | ✅/❌ | `forzar_spec` o `forzar_nombre` → salta detector |
+| **Fallback stub** | ❌ | Sin LLM: stub compilable para probar el flujo sin API key |
+
+### Integración con `main.go`
+
+- Inicializa el `Gestor` con el orquestador NVIDIA como LLM (si está disponible)
+- Crea el directorio `~/.liz/herramientas/auto_creadas/` si no existe
+- Llama `CargarTodas()` para cargar tools existentes al iniciar
+- Inyecta el gestor en el servidor via `ConAutoGestor()`
+- Bump de versión: `0.5.0` → `0.6.0`
+
+### Tests (32 tests nuevos, 588 totales)
+
+- **18 unitarios** (`auto_creacion_test.go`): tipos, plantillas, detector con
+  mock LLM, generador con mock LLM + stub fallback, parsing robusto de JSON
+- **14 de integración** (`integracion_test.go`): compilador real con
+  `go build`, cargador subprocess end-to-end (compile + info + validar +
+  ejecutar), registro persistencia (guardar/obtener/listar/eliminar/
+  estadísticas), gestor flujo completo (crear/cargar-todas/eliminar/probar/
+  recargar con y sin nuevo fuente)
+
+Todos los tests pasan con `go test ./...` en los 22 paquetes del proyecto.
+`go vet ./...` limpio.
+
+### Documentación
+
+- **README.md**: nueva sección "Sistema de Auto-Creación de Herramientas
+  (Fase 6)" con diagrama de flujo, arquitectura del paquete, protocolo
+  subprocess, endpoints, ejemplos de uso curl, modos de operación,
+  persistencia y seguridad
+- **docs/ARQUITECTURA.md**: nueva sección "12.ter Fase 6 — Auto-Creación
+  de Herramientas (Detalle)" con arquitectura del sistema, protocolo
+  subprocess (con justificación vs Go plugins), operaciones del gestor,
+  endpoints API, persistencia, modos, seguridad y tests
+- Roadmap actualizado: Fase 6 marcada como ✅
+- Badges actualizados: fase 6/10, 588 tests pasando
+
+---
+
 ## [0.5.0] — Fase 5: Herramientas Base (7 integradas)
 
 > **Liz ahora puede manipular el sistema operativo. 7 herramientas integradas
