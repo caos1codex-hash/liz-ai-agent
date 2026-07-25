@@ -144,7 +144,7 @@ func (be *BuscadorEmbeddings) IndexarBatchConEmbeddings(frags []FragmentoBuscabl
 
         vectors, err := be.provider.GenerarEmbeddings(textos)
         if err != nil {
-                return 0, err
+                return 0, fmt.Errorf("generando embeddings en batch: %w", err)
         }
 
         if len(vectors) != len(frags) {
@@ -193,7 +193,7 @@ func (be *BuscadorEmbeddings) BuscarVector(query string, topK int) ([]ResultadoB
         // Generar embedding de la query
         queryVecs, err := be.provider.GenerarEmbeddings([]string{query})
         if err != nil {
-                return nil, err
+                return nil, fmt.Errorf("generando embedding de consulta: %w", err)
         }
         if len(queryVecs) == 0 {
                 return nil, ErrEmbeddingsVacios

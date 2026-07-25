@@ -2,6 +2,7 @@ package orquestador
 
 import (
         "context"
+        "errors"
         "fmt"
         "sort"
         "strings"
@@ -276,7 +277,7 @@ func (o *Orquestador) probarModelo(modelo config.ConfiguracionModelo, req Solici
 
         resp, apiErr, err := o.cliente.ChatCompletion(solicitud)
         if err != nil {
-                return nil, nil, err
+                return nil, nil, fmt.Errorf("enviando solicitud a modelo %s: %w", modelo.Nombre, err)
         }
         if apiErr != nil {
                 return nil, apiErr, nil
@@ -351,11 +352,14 @@ func (o *Orquestador) CompletarStream(ctx context.Context, req SolicitudChat) (<
                 ch, err := o.cliente.ChatCompletionStream(ctx, solicitud)
                 if err != nil {
                         // Error antes de stream: reintentar
-                        apiErr, ok := err.(*ErrorAPI)
-                        reintentable := !ok || apiErr.Reintentable
+                        var apiErr *ErrorAPI
+                        if !errors.As(err, &apiErr) {
+                                apiErr = nil
+                        }
+                        reintentable := apiErr == nil || apiErr.Reintentable
                         o.registrarFallo(modelo.Nombre, "stream_setup")
                         if !reintentable {
-                                return nil, err
+                                return nil, fmt.Errorf("stream con modelo %s: %w", modelo.Nombre, err)
                         }
                         continue
                 }
