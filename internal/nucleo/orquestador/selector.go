@@ -360,7 +360,9 @@ func (o *Orquestador) CompletarStream(ctx context.Context, req SolicitudChat) (<
                         continue
                 }
 
-                // Wrap canal para inyectar ModeloUsado en primer chunk y registrar métricas
+                // Wrap canal para inyectar ModeloUsado en primer chunk y registrar métricas.
+                // La goroutine escucha ctx.Done() para evitar bloquearse si el caller
+                // deja de leer del canal de salida.
                 out := make(chan ChunkStream, 32)
                 go func() {
                         defer close(out)
@@ -369,6 +371,13 @@ func (o *Orquestador) CompletarStream(ctx context.Context, req SolicitudChat) (<
                         var tokensEstim int
 
                         for chunk := range ch {
+                                // Verificar cancelación antes de enviar (evita goroutine leak)
+                                select {
+                                case <-ctx.Done():
+                                        return
+                                default:
+                                }
+
                                 if chunk.Contenido != "" {
                                         recibioChunk = true
                                         tokensEstim += len(chunk.Contenido) / 4
