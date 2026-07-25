@@ -1,5 +1,23 @@
 # Changelog — Liz AI Agent
 
+## [2025-07-25] — Fase 4: Polish
+
+### Fixed
+- P0: Decouple empaquetador from concrete Buscador type (BuscadorHibrido interface)
+- P1.1: Fix tracker test typo, verify race-free code
+- P1.2: Prevent goroutine leak in CompletarStream wrapper (ctx.Done() check)
+- P3.3: Improve error handling with context wrapping and errors.As
+
+### Added
+- P2.3: HTTP endpoints for file edit tracker (POST/GET /api/v1/contexto/tracker/*)
+- P2.4: PageRank cache with SHA-256 graph change detection
+- P2.2: LLM re-ranking for search results (RerankerLLM)
+
+### Tested
+- P4: 15+ new tests (concurrency with -race, error paths, benchmarks)
+
+---
+
 ## [0.4.1] — Fase 4.1: Embeddings nv-embed-v1 + Búsqueda Híbrida Real
 
 > **Activa la búsqueda semántica real. Combina BM25 + vector + RRF
