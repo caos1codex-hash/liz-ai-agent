@@ -296,6 +296,8 @@ func (c *Coordinador) ListarProyectos() []EstadoProyecto {
 }
 
 // ObtenerResumen genera un resumen detallado de un archivo en un proyecto.
+// Si el resumen ya está en cache/disco, lo retorna sin regenerar.
+// Para forzar regeneración, usar ForzarResumen.
 func (c *Coordinador) ObtenerResumen(nombreProyecto, rutaRelativa, rutaAbsoluta string) (*resumen.ResumenArchivo, error) {
         c.mu.RLock()
         proy, existe := c.proyectos[nombreProyecto]
@@ -305,7 +307,121 @@ func (c *Coordinador) ObtenerResumen(nombreProyecto, rutaRelativa, rutaAbsoluta 
                 return nil, fmt.Errorf("proyecto %s no indexado", nombreProyecto)
         }
 
-        return proy.GenResumen.Generar(rutaRelativa, rutaAbsoluta)
+        // Intentar cargar de cache/disco primero
+        if cached, _ := proy.GenResumen.Cargar(rutaRelativa); cached != nil {
+                return cached, nil
+        }
+
+        // Generar nuevo
+        r, err := proy.GenResumen.Generar(rutaRelativa, rutaAbsoluta)
+        if err != nil {
+                return nil, err
+        }
+
+        // Persistir para futuras consultas
+        _ = proy.GenResumen.Guardar(r)
+        return r, nil
+}
+
+// ForzarResumen regenera el resumen sin usar cache.
+func (c *Coordinador) ForzarResumen(nombreProyecto, rutaRelativa, rutaAbsoluta string) (*resumen.ResumenArchivo, error) {
+        c.mu.RLock()
+        proy, existe := c.proyectos[nombreProyecto]
+        c.mu.RUnlock()
+
+        if !existe {
+                return nil, fmt.Errorf("proyecto %s no indexado", nombreProyecto)
+        }
+
+        r, err := proy.GenResumen.Generar(rutaRelativa, rutaAbsoluta)
+        if err != nil {
+                return nil, err
+        }
+        _ = proy.GenResumen.Guardar(r)
+        return r, nil
+}
+
+// ObtenerArbol retorna la estructura jerárquica del índice de un proyecto.
+func (c *Coordinador) ObtenerArbol(nombreProyecto string) (*indice.NodoArbol, error) {
+        c.mu.RLock()
+        proy, existe := c.proyectos[nombreProyecto]
+        c.mu.RUnlock()
+
+        if !existe {
+                return nil, fmt.Errorf("proyecto %s no indexado", nombreProyecto)
+        }
+        return proy.Indice.Arbol(), nil
+}
+
+// EliminarProyecto elimina un proyecto del coordinador y borra todos sus
+// datos del disco (~/.liz/contexto/proyectos/<nombre>/).
+func (c *Coordinador) EliminarProyecto(nombreProyecto string) error {
+        c.mu.Lock()
+        defer c.mu.Unlock()
+
+        proy, existe := c.proyectos[nombreProyecto]
+        if !existe {
+                return fmt.Errorf("proyecto %s no indexado", nombreProyecto)
+        }
+
+        // Borrar del disco
+        rutaProyecto := filepath.Join(c.dirBase, nombreProyecto)
+        if err := os.RemoveAll(rutaProyecto); err != nil {
+                return fmt.Errorf("error eliminando directorio del proyecto: %w", err)
+        }
+
+        // Quitar del mapa
+        delete(c.proyectos, nombreProyecto)
+
+        c.logFunc("proyecto eliminado: %s (%s)", nombreProyecto, proy.Ruta)
+        return nil
+}
+
+// ReindexarArchivo re-indexa un único archivo (en lugar de todo el proyecto).
+// Útil cuando se sabe que un archivo específico cambió.
+func (c *Coordinador) ReindexarArchivo(nombreProyecto, rutaRelativa string) error {
+        c.mu.Lock()
+        defer c.mu.Unlock()
+
+        proy, existe := c.proyectos[nombreProyecto]
+        if !existe {
+                return fmt.Errorf("proyecto %s no indexado", nombreProyecto)
+        }
+
+        rutaAbsoluta := filepath.Join(proy.Ruta, rutaRelativa)
+
+        // Verificar que el archivo existe
+        if _, err := os.Stat(rutaAbsoluta); err != nil {
+                // Archivo eliminado: limpiar del índice y eliminar fragmentos
+                _, _ = proy.Almacen.EliminarPorRuta(rutaRelativa)
+                _ = proy.GenResumen.Eliminar(rutaRelativa)
+                // Marcar en el índice como eliminado (Reconstruir lo detectará después)
+                return nil
+        }
+
+        // Eliminar fragmentos y resumen viejos
+        _, _ = proy.Almacen.EliminarPorRuta(rutaRelativa)
+        _ = proy.GenResumen.Eliminar(rutaRelativa)
+
+        // Re-fragmentar
+        ids, err := proy.Almacen.AgregarDesdeArchivo(rutaRelativa, rutaAbsoluta)
+        if err != nil {
+                return fmt.Errorf("error re-fragmentando %s: %w", rutaRelativa, err)
+        }
+        if len(ids) > 0 {
+                if err := proy.Indice.AsignarFragmentos(rutaRelativa, ids); err != nil {
+                        return fmt.Errorf("error asignando fragmentos: %w", err)
+                }
+        }
+
+        // Regenerar resumen
+        r, err := proy.GenResumen.Generar(rutaRelativa, rutaAbsoluta)
+        if err == nil {
+                _ = proy.GenResumen.Guardar(r)
+        }
+
+        c.logFunc("archivo re-indexado: %s/%s (%d fragmentos)", nombreProyecto, rutaRelativa, len(ids))
+        return nil
 }
 
 // ═══════════════════════════════════════════════════════
@@ -331,13 +447,16 @@ func (c *Coordinador) obtenerOCrearProyecto(nombre, ruta string) (*ProyectoConte
                 return nil, err
         }
 
+        // Crear generador de resúmenes con directorio de persistencia
+        dirResumenes := filepath.Join(c.dirBase, nombre, ".liz", "resumenes")
+
         proy := &ProyectoContexto{
                 Nombre:     nombre,
                 Ruta:       ruta,
                 GenMapa:    mapa.NuevoGenerador().ConLog(c.logFunc),
                 Almacen:    almacen.ConLog(c.logFunc),
                 Indice:     gestorIndice.ConLog(c.logFunc),
-                GenResumen: resumen.NuevoGenerador().ConLog(c.logFunc),
+                GenResumen: resumen.NuevoGenerador().ConLog(c.logFunc).ConDirResumen(dirResumenes),
         }
 
         c.proyectos[nombre] = proy
@@ -380,13 +499,15 @@ func (c *Coordinador) cargarProyectos() {
                         continue
                 }
 
+                dirResumenes := filepath.Join(c.dirBase, nombre, ".liz", "resumenes")
+
                 c.proyectos[nombre] = &ProyectoContexto{
                         Nombre:     nombre,
                         Ruta:       estado.Ruta,
                         GenMapa:    mapa.NuevoGenerador().ConLog(c.logFunc),
                         Almacen:    almacen.ConLog(c.logFunc),
                         Indice:     gestorIndice.ConLog(c.logFunc),
-                        GenResumen: resumen.NuevoGenerador().ConLog(c.logFunc),
+                        GenResumen: resumen.NuevoGenerador().ConLog(c.logFunc).ConDirResumen(dirResumenes),
                 }
 
                 c.logFunc("proyecto cargado desde caché: %s", nombre)

@@ -1,6 +1,7 @@
 package resumen
 
 import (
+        "encoding/json"
         "fmt"
         "os"
         "path/filepath"
@@ -68,13 +69,17 @@ func TipoArchivo(ruta string) string {
 
 // Generador genera resúmenes detallados de archivos.
 type Generador struct {
-        logFunc func(string, ...interface{})
+        logFunc    func(string, ...interface{})
+        dirResumen string // directorio base para persistencia (opcional)
+        mu         sync.Mutex
+        cache      map[string]*ResumenArchivo // cache en memoria por ruta
 }
 
 // NuevoGenerador crea un nuevo generador de resúmenes.
 func NuevoGenerador() *Generador {
         return &Generador{
                 logFunc: func(string, ...interface{}) {},
+                cache:   make(map[string]*ResumenArchivo),
         }
 }
 
@@ -84,6 +89,103 @@ func (g *Generador) ConLog(fn func(string, ...interface{})) *Generador {
                 g.logFunc = fn
         }
         return g
+}
+
+// ConDirResumen asigna el directorio donde se persistirán los resúmenes
+// (e.g. ~/.liz/contexto/proyectos/<nombre>/.liz/resumenes/).
+// Si no se asigna, Guardar() fallará con error.
+func (g *Generador) ConDirResumen(dir string) *Generador {
+        g.dirResumen = dir
+        _ = os.MkdirAll(dir, 0755)
+        return g
+}
+
+// rutaResumen retorna la ruta del archivo JSON para un resumen dado.
+// Convierte "src/auth/jwt.go" → "src_auth_jwt.go.json".
+func rutaResumen(rutaRelativa string) string {
+        limpia := strings.ReplaceAll(rutaRelativa, "/", "_")
+        limpia = strings.ReplaceAll(limpia, "\\", "_")
+        limpia = strings.ReplaceAll(limpia, " ", "_")
+        if !strings.HasSuffix(limpia, ".json") {
+                limpia += ".json"
+        }
+        return limpia
+}
+
+// Guardar persiste un resumen a disco en dirResumen.
+// Requiere que ConDirResumen haya sido llamado.
+func (g *Generador) Guardar(r *ResumenArchivo) error {
+        if g.dirResumen == "" {
+                return fmt.Errorf("dirResumen no configurado; usar ConDirResumen()")
+        }
+        if r == nil {
+                return fmt.Errorf("resumen nil")
+        }
+
+        rutaArchivo := filepath.Join(g.dirResumen, rutaResumen(r.Ruta))
+        datos, err := json.MarshalIndent(r, "", "  ")
+        if err != nil {
+                return fmt.Errorf("error serializando resumen: %w", err)
+        }
+
+        if err := os.WriteFile(rutaArchivo, datos, 0644); err != nil {
+                return fmt.Errorf("error guardando resumen %s: %w", rutaArchivo, err)
+        }
+
+        // Actualizar cache
+        g.mu.Lock()
+        g.cache[r.Ruta] = r
+        g.mu.Unlock()
+
+        return nil
+}
+
+// Cargar lee un resumen desde disco. Retorna nil si no existe.
+func (g *Generador) Cargar(rutaRelativa string) (*ResumenArchivo, error) {
+        // Cache
+        g.mu.Lock()
+        if cached, ok := g.cache[rutaRelativa]; ok {
+                g.mu.Unlock()
+                return cached, nil
+        }
+        g.mu.Unlock()
+
+        if g.dirResumen == "" {
+                return nil, nil
+        }
+
+        rutaArchivo := filepath.Join(g.dirResumen, rutaResumen(rutaRelativa))
+        datos, err := os.ReadFile(rutaArchivo)
+        if err != nil {
+                return nil, nil // no existe = nil
+        }
+
+        var r ResumenArchivo
+        if err := json.Unmarshal(datos, &r); err != nil {
+                return nil, fmt.Errorf("error parseando resumen %s: %w", rutaArchivo, err)
+        }
+
+        g.mu.Lock()
+        g.cache[rutaRelativa] = &r
+        g.mu.Unlock()
+
+        return &r, nil
+}
+
+// Eliminar borra el resumen de un archivo de disco y de la cache.
+func (g *Generador) Eliminar(rutaRelativa string) error {
+        g.mu.Lock()
+        delete(g.cache, rutaRelativa)
+        g.mu.Unlock()
+
+        if g.dirResumen == "" {
+                return nil
+        }
+        rutaArchivo := filepath.Join(g.dirResumen, rutaResumen(rutaRelativa))
+        if err := os.Remove(rutaArchivo); err != nil && !os.IsNotExist(err) {
+                return err
+        }
+        return nil
 }
 
 // ═══════════════════════════════════════════════════════
