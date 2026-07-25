@@ -1,252 +1,401 @@
 package indice
 
 import (
-	"os"
-	"path/filepath"
-	"testing"
+        "os"
+        "path/filepath"
+        "testing"
+        "time"
 )
 
 func crearProyectoIndice(t *testing.T) string {
-	t.Helper()
-	tmpDir := t.TempDir()
+        t.Helper()
+        tmpDir := t.TempDir()
 
-	// Crear estructura de proyecto
-	dirs := []string{"pkg/a", "pkg/b"}
-	for _, dir := range dirs {
-		os.MkdirAll(filepath.Join(tmpDir, dir), 0755)
-	}
+        // Crear estructura de proyecto
+        dirs := []string{"pkg/a", "pkg/b"}
+        for _, dir := range dirs {
+                os.MkdirAll(filepath.Join(tmpDir, dir), 0755)
+        }
 
-	// Crear archivos Go
-	os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0644)
-	os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\ngo 1.21\n"), 0644)
-	os.WriteFile(filepath.Join(tmpDir, "pkg/a", "a.go"), []byte("package a\n\nfunc A() {}\n"), 0644)
-	os.WriteFile(filepath.Join(tmpDir, "pkg/b", "b.go"), []byte("package b\n\nfunc B() {}\n"), 0644)
-	os.WriteFile(filepath.Join(tmpDir, "README.md"), []byte("# Test\n"), 0644)
+        // Crear archivos Go
+        os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0644)
+        os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\ngo 1.21\n"), 0644)
+        os.WriteFile(filepath.Join(tmpDir, "pkg/a", "a.go"), []byte("package a\n\nfunc A() {}\n"), 0644)
+        os.WriteFile(filepath.Join(tmpDir, "pkg/b", "b.go"), []byte("package b\n\nfunc B() {}\n"), 0644)
+        os.WriteFile(filepath.Join(tmpDir, "README.md"), []byte("# Test\n"), 0644)
 
-	return tmpDir
+        return tmpDir
 }
 
 func TestReconstruir_Basico(t *testing.T) {
-	proyectoDir := crearProyectoIndice(t)
-	rutaIndice := filepath.Join(t.TempDir(), "indice.json")
+        proyectoDir := crearProyectoIndice(t)
+        rutaIndice := filepath.Join(t.TempDir(), "indice.json")
 
-	g, err := NuevoGestor(rutaIndice)
-	if err != nil {
-		t.Fatalf("NuevoGestor() error: %v", err)
-	}
+        g, err := NuevoGestor(rutaIndice)
+        if err != nil {
+                t.Fatalf("NuevoGestor() error: %v", err)
+        }
 
-	err = g.Reconstruir(proyectoDir)
-	if err != nil {
-		t.Fatalf("Reconstruir() error: %v", err)
-	}
+        err = g.Reconstruir(proyectoDir)
+        if err != nil {
+                t.Fatalf("Reconstruir() error: %v", err)
+        }
 
-	ind := g.Obtener()
+        ind := g.Obtener()
 
-	// Debería tener al menos 5 archivos (sin .git ni ignorados)
-	if ind.TotalArchivos < 4 {
-		t.Errorf("se esperaban al menos 4 archivos, obtuve %d", ind.TotalArchivos)
-	}
+        // Debería tener al menos 5 archivos (sin .git ni ignorados)
+        if ind.TotalArchivos < 4 {
+                t.Errorf("se esperaban al menos 4 archivos, obtuve %d", ind.TotalArchivos)
+        }
 
-	if ind.Version != "1.0" {
-		t.Errorf("versión incorrecta: %s", ind.Version)
-	}
+        if ind.Version != "1.0" {
+                t.Errorf("versión incorrecta: %s", ind.Version)
+        }
 
-	if ind.Proyecto != filepath.Base(proyectoDir) {
-		t.Errorf("nombre de proyecto incorrecto: %s", ind.Proyecto)
-	}
+        if ind.Proyecto != filepath.Base(proyectoDir) {
+                t.Errorf("nombre de proyecto incorrecto: %s", ind.Proyecto)
+        }
 }
 
 func TestReconstruir_Incremental(t *testing.T) {
-	proyectoDir := crearProyectoIndice(t)
-	rutaIndice := filepath.Join(t.TempDir(), "indice.json")
+        proyectoDir := crearProyectoIndice(t)
+        rutaIndice := filepath.Join(t.TempDir(), "indice.json")
 
-	g, _ := NuevoGestor(rutaIndice)
-	g.Reconstruir(proyectoDir)
+        g, _ := NuevoGestor(rutaIndice)
+        g.Reconstruir(proyectoDir)
 
-	primerTotal := g.Obtener().TotalArchivos
+        primerTotal := g.Obtener().TotalArchivos
 
-	// Reconstruir de nuevo sin cambios — no debería cambiar
-	g.Reconstruir(proyectoDir)
-	segundoTotal := g.Obtener().TotalArchivos
+        // Reconstruir de nuevo sin cambios — no debería cambiar
+        g.Reconstruir(proyectoDir)
+        segundoTotal := g.Obtener().TotalArchivos
 
-	if primerTotal != segundoTotal {
-		t.Errorf("reconstrucción sin cambios no debería alterar el total: %d vs %d",
-			primerTotal, segundoTotal)
-	}
+        if primerTotal != segundoTotal {
+                t.Errorf("reconstrucción sin cambios no debería alterar el total: %d vs %d",
+                        primerTotal, segundoTotal)
+        }
 
-	// Agregar un archivo nuevo y reconstruir
-	os.WriteFile(filepath.Join(proyectoDir, "nuevo.go"), []byte("package nuevo\n"), 0644)
-	g.Reconstruir(proyectoDir)
+        // Agregar un archivo nuevo y reconstruir
+        os.WriteFile(filepath.Join(proyectoDir, "nuevo.go"), []byte("package nuevo\n"), 0644)
+        g.Reconstruir(proyectoDir)
 
-	tercerTotal := g.Obtener().TotalArchivos
-	if tercerTotal != primerTotal+1 {
-		t.Errorf("después de agregar archivo, total debería ser %d, obtuve %d",
-			primerTotal+1, tercerTotal)
-	}
+        tercerTotal := g.Obtener().TotalArchivos
+        if tercerTotal != primerTotal+1 {
+                t.Errorf("después de agregar archivo, total debería ser %d, obtuve %d",
+                        primerTotal+1, tercerTotal)
+        }
 }
 
 func TestBuscar(t *testing.T) {
-	proyectoDir := crearProyectoIndice(t)
-	rutaIndice := filepath.Join(t.TempDir(), "indice.json")
+        proyectoDir := crearProyectoIndice(t)
+        rutaIndice := filepath.Join(t.TempDir(), "indice.json")
 
-	g, _ := NuevoGestor(rutaIndice)
-	g.Reconstruir(proyectoDir)
+        g, _ := NuevoGestor(rutaIndice)
+        g.Reconstruir(proyectoDir)
 
-	// Buscar por extensión
-	resultados := g.Buscar(".go")
-	if len(resultados) == 0 {
-		t.Error("debería encontrar archivos .go")
-	}
+        // Buscar por extensión
+        resultados := g.Buscar(".go")
+        if len(resultados) == 0 {
+                t.Error("debería encontrar archivos .go")
+        }
 
-	// Buscar por nombre de archivo
-	resultados = g.Buscar("main")
-	if len(resultados) == 0 {
-		t.Error("debería encontrar 'main.go'")
-	}
+        // Buscar por nombre de archivo
+        resultados = g.Buscar("main")
+        if len(resultados) == 0 {
+                t.Error("debería encontrar 'main.go'")
+        }
 
-	// Buscar algo que no existe
-	resultados = g.Buscar("xyz_no_existe_123")
-	if len(resultados) != 0 {
-		t.Errorf("búsqueda sin resultados debería retornar vacío, obtuve %d", len(resultados))
-	}
+        // Buscar algo que no existe
+        resultados = g.Buscar("xyz_no_existe_123")
+        if len(resultados) != 0 {
+                t.Errorf("búsqueda sin resultados debería retornar vacío, obtuve %d", len(resultados))
+        }
 }
 
 func TestObtenerArchivo(t *testing.T) {
-	proyectoDir := crearProyectoIndice(t)
-	rutaIndice := filepath.Join(t.TempDir(), "indice.json")
+        proyectoDir := crearProyectoIndice(t)
+        rutaIndice := filepath.Join(t.TempDir(), "indice.json")
 
-	g, _ := NuevoGestor(rutaIndice)
-	g.Reconstruir(proyectoDir)
+        g, _ := NuevoGestor(rutaIndice)
+        g.Reconstruir(proyectoDir)
 
-	entrada, err := g.ObtenerArchivo("main.go")
-	if err != nil {
-		t.Fatalf("ObtenerArchivo() error: %v", err)
-	}
+        entrada, err := g.ObtenerArchivo("main.go")
+        if err != nil {
+                t.Fatalf("ObtenerArchivo() error: %v", err)
+        }
 
-	if entrada.Lenguaje != "go" {
-		t.Errorf("lenguaje esperado 'go', obtuve '%s'", entrada.Lenguaje)
-	}
+        if entrada.Lenguaje != "go" {
+                t.Errorf("lenguaje esperado 'go', obtuve '%s'", entrada.Lenguaje)
+        }
 
-	if entrada.Lineas < 1 {
-		t.Error("main.go debería tener al menos 1 línea")
-	}
+        if entrada.Lineas < 1 {
+                t.Error("main.go debería tener al menos 1 línea")
+        }
 }
 
 func TestObtenerArchivo_NoExistente(t *testing.T) {
-	proyectoDir := crearProyectoIndice(t)
-	rutaIndice := filepath.Join(t.TempDir(), "indice.json")
+        proyectoDir := crearProyectoIndice(t)
+        rutaIndice := filepath.Join(t.TempDir(), "indice.json")
 
-	g, _ := NuevoGestor(rutaIndice)
-	g.Reconstruir(proyectoDir)
+        g, _ := NuevoGestor(rutaIndice)
+        g.Reconstruir(proyectoDir)
 
-	_, err := g.ObtenerArchivo("no_existe.go")
-	if err == nil {
-		t.Error("debería retornar error para archivo inexistente")
-	}
+        _, err := g.ObtenerArchivo("no_existe.go")
+        if err == nil {
+                t.Error("debería retornar error para archivo inexistente")
+        }
 }
 
 func TestObtenerPorLenguaje(t *testing.T) {
-	proyectoDir := crearProyectoIndice(t)
-	rutaIndice := filepath.Join(t.TempDir(), "indice.json")
+        proyectoDir := crearProyectoIndice(t)
+        rutaIndice := filepath.Join(t.TempDir(), "indice.json")
 
-	g, _ := NuevoGestor(rutaIndice)
-	g.Reconstruir(proyectoDir)
+        g, _ := NuevoGestor(rutaIndice)
+        g.Reconstruir(proyectoDir)
 
-	goFiles := g.ObtenerPorLenguaje("go")
-	if len(goFiles) == 0 {
-		t.Error("debería encontrar archivos Go")
-	}
+        goFiles := g.ObtenerPorLenguaje("go")
+        if len(goFiles) == 0 {
+                t.Error("debería encontrar archivos Go")
+        }
 
-	// Todos deberían ser Go
-	for _, f := range goFiles {
-		if f.Lenguaje != "go" {
-			t.Errorf("archivo %s no es Go: %s", f.Ruta, f.Lenguaje)
-		}
-	}
+        // Todos deberían ser Go
+        for _, f := range goFiles {
+                if f.Lenguaje != "go" {
+                        t.Errorf("archivo %s no es Go: %s", f.Ruta, f.Lenguaje)
+                }
+        }
 }
 
 func TestAsignarFragmentos(t *testing.T) {
-	proyectoDir := crearProyectoIndice(t)
-	rutaIndice := filepath.Join(t.TempDir(), "indice.json")
+        proyectoDir := crearProyectoIndice(t)
+        rutaIndice := filepath.Join(t.TempDir(), "indice.json")
 
-	g, _ := NuevoGestor(rutaIndice)
-	g.Reconstruir(proyectoDir)
+        g, _ := NuevoGestor(rutaIndice)
+        g.Reconstruir(proyectoDir)
 
-	err := g.AsignarFragmentos("main.go", []string{"frag_001", "frag_002"})
-	if err != nil {
-		t.Fatalf("AsignarFragmentos() error: %v", err)
-	}
+        err := g.AsignarFragmentos("main.go", []string{"frag_001", "frag_002"})
+        if err != nil {
+                t.Fatalf("AsignarFragmentos() error: %v", err)
+        }
 
-	entrada, _ := g.ObtenerArchivo("main.go")
-	if len(entrada.FragmentoIDs) != 2 {
-		t.Errorf("se esperaban 2 fragmentos, obtuve %d", len(entrada.FragmentoIDs))
-	}
+        entrada, _ := g.ObtenerArchivo("main.go")
+        if len(entrada.FragmentoIDs) != 2 {
+                t.Errorf("se esperaban 2 fragmentos, obtuve %d", len(entrada.FragmentoIDs))
+        }
 
-	ind := g.Obtener()
-	if ind.TotalFragmentos != 2 {
-		t.Errorf("total de fragmentos debería ser 2, obtuve %d", ind.TotalFragmentos)
-	}
+        ind := g.Obtener()
+        if ind.TotalFragmentos != 2 {
+                t.Errorf("total de fragmentos debería ser 2, obtuve %d", ind.TotalFragmentos)
+        }
 }
 
 func TestCargarGestor_Existente(t *testing.T) {
-	proyectoDir := crearProyectoIndice(t)
-	rutaIndice := filepath.Join(t.TempDir(), "indice.json")
+        proyectoDir := crearProyectoIndice(t)
+        rutaIndice := filepath.Join(t.TempDir(), "indice.json")
 
-	// Crear y guardar un índice
-	g1, _ := NuevoGestor(rutaIndice)
-	g1.Reconstruir(proyectoDir)
+        // Crear y guardar un índice
+        g1, _ := NuevoGestor(rutaIndice)
+        g1.Reconstruir(proyectoDir)
 
-	// Cargar el mismo índice
-	g2, err := NuevoGestor(rutaIndice)
-	if err != nil {
-		t.Fatalf("error cargando índice existente: %v", err)
-	}
+        // Cargar el mismo índice
+        g2, err := NuevoGestor(rutaIndice)
+        if err != nil {
+                t.Fatalf("error cargando índice existente: %v", err)
+        }
 
-	ind := g2.Obtener()
-	if ind.TotalArchivos == 0 {
-		t.Error("el índice cargado debería tener archivos")
-	}
+        ind := g2.Obtener()
+        if ind.TotalArchivos == 0 {
+                t.Error("el índice cargado debería tener archivos")
+        }
 }
 
 func TestLenguajesContados(t *testing.T) {
-	proyectoDir := crearProyectoIndice(t)
-	rutaIndice := filepath.Join(t.TempDir(), "indice.json")
+        proyectoDir := crearProyectoIndice(t)
+        rutaIndice := filepath.Join(t.TempDir(), "indice.json")
 
-	g, _ := NuevoGestor(rutaIndice)
-	g.Reconstruir(proyectoDir)
+        g, _ := NuevoGestor(rutaIndice)
+        g.Reconstruir(proyectoDir)
 
-	ind := g.Obtener()
-	if len(ind.Lenguajes) == 0 {
-		t.Error("debería contar lenguajes")
-	}
+        ind := g.Obtener()
+        if len(ind.Lenguajes) == 0 {
+                t.Error("debería contar lenguajes")
+        }
 
-	// Debería tener 'go' como lenguaje
-	if count, ok := ind.Lenguajes["go"]; !ok || count == 0 {
-		t.Error("debería contar al menos 1 archivo Go")
-	}
+        // Debería tener 'go' como lenguaje
+        if count, ok := ind.Lenguajes["go"]; !ok || count == 0 {
+                t.Error("debería contar al menos 1 archivo Go")
+        }
 }
 
 func TestDetectarLenguajeIndice(t *testing.T) {
-	tests := []struct{
-		ext      string
-		esperado string
-	}{
-		{".go", "go"},
-		{".py", "python"},
-		{".ts", "typescript"},
-		{".toml", "toml"},
-		{".yml", "yaml"},
-		{".json", "json"},
-		{".md", "markdown"},
-		{".txt", "txt"},
-		{"", ""},
-	}
+        tests := []struct{
+                ext      string
+                esperado string
+        }{
+                {".go", "go"},
+                {".py", "python"},
+                {".ts", "typescript"},
+                {".toml", "toml"},
+                {".yml", "yaml"},
+                {".json", "json"},
+                {".md", "markdown"},
+                {".txt", "txt"},
+                {"", ""},
+        }
 
-	for _, tt := range tests {
-		resultado := detectarLenguajeIndice(tt.ext)
-		if resultado != tt.esperado {
-			t.Errorf("detectarLenguajeIndice(%q) = %q, esperado %q",
-				tt.ext, resultado, tt.esperado)
-		}
-	}
+        for _, tt := range tests {
+                resultado := detectarLenguajeIndice(tt.ext)
+                if resultado != tt.esperado {
+                        t.Errorf("detectarLenguajeIndice(%q) = %q, esperado %q",
+                                tt.ext, resultado, tt.esperado)
+                }
+        }
+}
+// ============================================================================
+// Tests de estructura de árbol (Fase 3)
+// ============================================================================
+
+func TestArbol_ProyectoPlano(t *testing.T) {
+        tmpDir := t.TempDir()
+        // Crear estructura simple
+        os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("package main\nfunc main() {}\n"), 0644)
+        os.WriteFile(filepath.Join(tmpDir, "README.md"), []byte("# Test\n"), 0644)
+
+        rutaIndice := filepath.Join(tmpDir, ".liz", "indice.json")
+        g, err := NuevoGestor(rutaIndice)
+        if err != nil {
+                t.Fatalf("NuevoGestor: %v", err)
+        }
+
+        if err := g.Reconstruir(tmpDir); err != nil {
+                t.Fatalf("Reconstruir: %v", err)
+        }
+
+        arbol := g.Arbol()
+        if arbol == nil {
+                t.Fatal("Arbol() no debería retornar nil")
+        }
+        if !arbol.EsDir {
+                t.Error("la raíz debería ser un directorio")
+        }
+        if arbol.TotalArchivos != 2 {
+                t.Errorf("TotalArchivos = %d, esperado 2", arbol.TotalArchivos)
+        }
+}
+
+func TestArbol_EstructuraJerarquica(t *testing.T) {
+        tmpDir := t.TempDir()
+        // Crear estructura con subdirectorios
+        os.MkdirAll(filepath.Join(tmpDir, "src", "auth"), 0755)
+        os.MkdirAll(filepath.Join(tmpDir, "src", "db"), 0755)
+        os.WriteFile(filepath.Join(tmpDir, "src", "main.go"), []byte("package main\n"), 0644)
+        os.WriteFile(filepath.Join(tmpDir, "src", "auth", "jwt.go"), []byte("package auth\n"), 0644)
+        os.WriteFile(filepath.Join(tmpDir, "src", "auth", "oauth.go"), []byte("package auth\n"), 0644)
+        os.WriteFile(filepath.Join(tmpDir, "src", "db", "postgres.go"), []byte("package db\n"), 0644)
+        os.WriteFile(filepath.Join(tmpDir, "README.md"), []byte("# Test\n"), 0644)
+
+        rutaIndice := filepath.Join(tmpDir, ".liz", "indice.json")
+        g, _ := NuevoGestor(rutaIndice)
+        g.Reconstruir(tmpDir)
+
+        arbol := g.Arbol()
+
+        // La raíz debería tener hijos: README.md (file) y src/ (dir)
+        if arbol.TotalArchivos != 5 {
+                t.Errorf("TotalArchivos = %d, esperado 5", arbol.TotalArchivos)
+        }
+
+        // Buscar el subdirectorio src/
+        var srcNodo *NodoArbol
+        for _, hijo := range arbol.Hijos {
+                if hijo.EsDir && hijo.Nombre == "src" {
+                        srcNodo = hijo
+                        break
+                }
+        }
+        if srcNodo == nil {
+                t.Fatal("debería existir el subdirectorio src/")
+        }
+        if srcNodo.TotalArchivos != 4 {
+                t.Errorf("src/ debería tener 4 archivos, got %d", srcNodo.TotalArchivos)
+        }
+
+        // src/ debería contener auth/ y db/ y main.go
+        var authNodo *NodoArbol
+        for _, hijo := range srcNodo.Hijos {
+                if hijo.EsDir && hijo.Nombre == "auth" {
+                        authNodo = hijo
+                        break
+                }
+        }
+        if authNodo == nil {
+                t.Fatal("debería existir src/auth/")
+        }
+        if authNodo.TotalArchivos != 2 {
+                t.Errorf("src/auth/ debería tener 2 archivos, got %d", authNodo.TotalArchivos)
+        }
+}
+
+func TestArbol_LineasAgregadas(t *testing.T) {
+        tmpDir := t.TempDir()
+        contenido := "package main\nfunc main() {}\nfunc foo() {}\n" // 3 líneas
+        os.WriteFile(filepath.Join(tmpDir, "test.go"), []byte(contenido), 0644)
+
+        rutaIndice := filepath.Join(tmpDir, ".liz", "indice.json")
+        g, _ := NuevoGestor(rutaIndice)
+        g.Reconstruir(tmpDir)
+
+        arbol := g.Arbol()
+        if arbol.TotalLineas != 3 {
+                t.Errorf("TotalLineas = %d, esperado 3", arbol.TotalLineas)
+        }
+}
+
+func TestArchivosModificados_OptimizacionMtime(t *testing.T) {
+        // Si el archivo no cambió (mtime/tamano iguales), NO debe leer el contenido
+        tmpDir := t.TempDir()
+        rutaArchivo := filepath.Join(tmpDir, "test.go")
+        os.WriteFile(rutaArchivo, []byte("package main\nfunc main() {}\n"), 0644)
+
+        rutaIndice := filepath.Join(tmpDir, ".liz", "indice.json")
+        g, _ := NuevoGestor(rutaIndice)
+        g.Reconstruir(tmpDir)
+
+        // Sin cambios: debe retornar lista vacía sin leer archivos
+        mods, err := g.ArchivosModificados(tmpDir)
+        if err != nil {
+                t.Fatalf("ArchivosModificados: %v", err)
+        }
+        if len(mods) != 0 {
+                t.Errorf("debería retornar 0 modificados, got %d", len(mods))
+        }
+
+        // Modificar archivo
+        time.Sleep(10 * time.Millisecond) // asegurar mtime diferente
+        os.WriteFile(rutaArchivo, []byte("package main\nfunc main() {}\nfunc foo() {}\n"), 0644)
+
+        mods, _ = g.ArchivosModificados(tmpDir)
+        if len(mods) != 1 {
+                t.Errorf("debería retornar 1 modificado, got %d", len(mods))
+        }
+}
+
+func TestIndice_MtimeTamanoPersistidos(t *testing.T) {
+        tmpDir := t.TempDir()
+        os.WriteFile(filepath.Join(tmpDir, "test.go"), []byte("package main\n"), 0644)
+
+        rutaIndice := filepath.Join(tmpDir, ".liz", "indice.json")
+        g, _ := NuevoGestor(rutaIndice)
+        g.Reconstruir(tmpDir)
+
+        // Verificar que Tamano y Mtime están poblados
+        indice := g.Obtener()
+        for _, entrada := range indice.Archivos {
+                if entrada.Tamano == 0 {
+                        t.Error("Tamano debería estar poblado")
+                }
+                if entrada.Mtime == 0 {
+                        t.Error("Mtime debería estar poblado")
+                }
+        }
 }

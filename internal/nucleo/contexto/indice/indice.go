@@ -18,27 +18,41 @@ import (
 
 // EntradaIndice representa un archivo indexado con sus fragmentos.
 type EntradaIndice struct {
-        Ruta            string   `json:"ruta"`
-        Lenguaje        string   `json:"lenguaje"`
-        Lineas          int      `json:"lineas"`
-        FragmentoIDs    []string `json:"fragmento_ids"`
-        Resumen         string   `json:"resumen"`
-        HashContenido   string   `json:"hash_contenido"`   // para detectar cambios
-        UltimaActualizacion string `json:"ultima_actualizacion"`
+        Ruta                string   `json:"ruta"`
+        Lenguaje            string   `json:"lenguaje"`
+        Lineas              int      `json:"lineas"`
+        FragmentoIDs        []string `json:"fragmento_ids"`
+        Resumen             string   `json:"resumen"`
+        HashContenido       string   `json:"hash_contenido"`   // para detectar cambios
+        Tamano              int64    `json:"tamano"`            // bytes (para detección rápida de cambios)
+        Mtime               int64    `json:"mtime"`             // unix nano (para detección rápida de cambios)
+        UltimaActualizacion string   `json:"ultima_actualizacion"`
 }
 
 // IndiceProyecto es el índice completo de un proyecto.
 // Es el "árbol" que conecta el mapa con los fragmentos.
 type IndiceProyecto struct {
-        Version          string                  `json:"version"`
-        Proyecto         string                  `json:"proyecto"`
-        RutaAbsoluta     string                  `json:"ruta_absoluta"`
-        Timestamp        string                  `json:"timestamp"`
-        Archivos         map[string]EntradaIndice `json:"archivos"`
-        TotalArchivos    int                     `json:"total_archivos"`
-        TotalFragmentos  int                     `json:"total_fragmentos"`
-        Lenguajes        map[string]int          `json:"lenguajes"` // lenguaje → cantidad
-        UltimaReconstruccion string               `json:"ultima_reconstruccion"`
+        Version              string                   `json:"version"`
+        Proyecto             string                   `json:"proyecto"`
+        RutaAbsoluta         string                   `json:"ruta_absoluta"`
+        Timestamp            string                   `json:"timestamp"`
+        Archivos             map[string]EntradaIndice `json:"archivos"`
+        TotalArchivos        int                      `json:"total_archivos"`
+        TotalFragmentos      int                      `json:"total_fragmentos"`
+        Lenguajes            map[string]int           `json:"lenguajes"` // lenguaje → cantidad
+        UltimaReconstruccion string                   `json:"ultima_reconstruccion"`
+}
+
+// NodoArbol representa un nodo en la estructura jerárquica del índice.
+// Los nodos hoja representan archivos; los internos representan directorios.
+type NodoArbol struct {
+        Ruta       string        `json:"ruta"`       // ruta relativa (e.g. "src/auth/")
+        Nombre     string        `json:"nombre"`     // nombre del archivo o directorio
+        EsDir      bool          `json:"es_dir"`
+        Entrada    *EntradaIndice `json:"entrada,omitempty"` // solo si EsDir == false
+        Hijos      []*NodoArbol  `json:"hijos,omitempty"`    // solo si EsDir == true
+        TotalArchivos int        `json:"total_archivos"`     // total de archivos bajo este nodo
+        TotalLineas   int        `json:"total_lineas"`       // total de líneas bajo este nodo
 }
 
 // OpcionesIndice configura el comportamiento del índice.
@@ -173,7 +187,19 @@ func (g *GestorIndice) Reconstruir(rutaProyecto string) error {
 
                 archivosVistos[relativa] = true
 
-                // Leer archivo y calcular hash
+                // Stat para tamaño y mtime (detección rápida de cambios)
+                info, errStat := d.Info()
+                if errStat != nil {
+                        return nil
+                }
+
+                // Verificación rápida: si tamaño y mtime no cambiaron, saltar hash
+                existente, existe := g.indice.Archivos[relativa]
+                if existe && existente.Tamano == info.Size() && existente.Mtime == info.ModTime().UnixNano() {
+                        return nil // sin cambios (rápido)
+                }
+
+                // Leer archivo y calcular hash (detección lenta pero precisa)
                 contenido, err := os.ReadFile(ruta)
                 if err != nil {
                         return nil
@@ -185,20 +211,25 @@ func (g *GestorIndice) Reconstruir(rutaProyecto string) error {
                         lineas++
                 }
 
-                // Verificar si ya está indexado y sin cambios
-                existente, existe := g.indice.Archivos[relativa]
+                // Verificación final con hash
                 if existe && existente.HashContenido == hashActual {
-                        return nil // sin cambios
+                        // El contenido no cambió pero sí el mtime; actualizar metadata
+                        existente.Mtime = info.ModTime().UnixNano()
+                        existente.Tamano = info.Size()
+                        g.indice.Archivos[relativa] = existente
+                        return nil
                 }
 
                 // Crear o actualizar entrada
                 lenguaje := detectarLenguajeIndice(ext)
                 entrada := EntradaIndice{
-                        Ruta:              relativa,
-                        Lenguaje:          lenguaje,
-                        Lineas:            lineas,
-                        Resumen:           fmt.Sprintf("%s, %d líneas", lenguaje, lineas),
-                        HashContenido:     hashActual,
+                        Ruta:                relativa,
+                        Lenguaje:            lenguaje,
+                        Lineas:              lineas,
+                        Resumen:             fmt.Sprintf("%s, %d líneas", lenguaje, lineas),
+                        HashContenido:       hashActual,
+                        Tamano:              info.Size(),
+                        Mtime:               info.ModTime().UnixNano(),
                         UltimaActualizacion: time.Now().UTC().Format(time.RFC3339),
                 }
 
@@ -356,7 +387,8 @@ func (g *GestorIndice) ObtenerFragmentosIDs(ruta string) []string {
 }
 
 // ArchivosModificados retorna los archivos que han cambiado desde la última indexación.
-// Compara hashes contra el filesystem actual.
+// Optimización: primero compara mtime y tamaño (barato), y solo hace hash si
+// esos cambiaron. Esto reduce drásticamente los reads de disco en proyectos grandes.
 func (g *GestorIndice) ArchivosModificados(rutaProyecto string) ([]string, error) {
         g.mu.RLock()
         defer g.mu.RUnlock()
@@ -366,13 +398,24 @@ func (g *GestorIndice) ArchivosModificados(rutaProyecto string) ([]string, error
 
         for ruta, entrada := range g.indice.Archivos {
                 rutaCompleta := filepath.Join(rutaAbs, ruta)
-                contenido, err := os.ReadFile(rutaCompleta)
+                info, err := os.Stat(rutaCompleta)
                 if err != nil {
                         // Archivo eliminado
                         modificados = append(modificados, ruta)
                         continue
                 }
 
+                // Verificación rápida: mtime y tamaño sin cambios → no modificado
+                if entrada.Mtime == info.ModTime().UnixNano() && entrada.Tamano == info.Size() {
+                        continue
+                }
+
+                // Verificación lenta: hash del contenido
+                contenido, err := os.ReadFile(rutaCompleta)
+                if err != nil {
+                        modificados = append(modificados, ruta)
+                        continue
+                }
                 hashActual := hashContenido(contenido)
                 if hashActual != entrada.HashContenido {
                         modificados = append(modificados, ruta)
@@ -380,6 +423,139 @@ func (g *GestorIndice) ArchivosModificados(rutaProyecto string) ([]string, error
         }
 
         return modificados, nil
+}
+
+// ═══════════════════════════════════════════════════════
+// ESTRUCTURA JERÁRQUICA (ÁRBOL)
+// ═══════════════════════════════════════════════════════
+
+// Arbol construye la estructura jerárquica del índice a partir del mapa plano
+// de archivos. Es la "vista de árbol" que pide la especificación de Fase 3.
+//
+// Ejemplo:
+//   src/                 (dir, 3 archivos, 850 líneas)
+//     auth/
+//       jwt.go           (file, 120 líneas)
+//       oauth.go         (file, 80 líneas)
+//     main.go            (file, 650 líneas)
+//   README.md            (file, 50 líneas)
+func (g *GestorIndice) Arbol() *NodoArbol {
+        g.mu.RLock()
+        defer g.mu.RUnlock()
+
+        raiz := &NodoArbol{
+                Ruta:   "",
+                Nombre: g.indice.Proyecto,
+                EsDir:  true,
+        }
+
+        // Indexar por ruta de directorio padre (normalizando "." a "")
+        porDir := make(map[string][]EntradaIndice)
+        for _, entrada := range g.indice.Archivos {
+                dir := filepath.Dir(entrada.Ruta)
+                if dir == "." {
+                        dir = ""
+                }
+                porDir[dir] = append(porDir[dir], entrada)
+        }
+
+        // Construir recursivamente
+        g.construirArbol(raiz, "", porDir)
+
+        // Calcular totales
+        raiz.TotalArchivos, raiz.TotalLineas = g.calcularTotales(raiz)
+
+        return raiz
+}
+
+// construirArbol llena los hijos de un nodo recursivamente.
+func (g *GestorIndice) construirArbol(nodo *NodoArbol, rutaActual string, porDir map[string][]EntradaIndice) {
+        // Agregar archivos de este directorio
+        archivos := porDir[rutaActual]
+        sort.Slice(archivos, func(i, j int) bool {
+                return archivos[i].Ruta < archivos[j].Ruta
+        })
+        for i := range archivos {
+                entrada := archivos[i] // copia para tomar dirección
+                nombre := filepath.Base(entrada.Ruta)
+                nodo.Hijos = append(nodo.Hijos, &NodoArbol{
+                        Ruta:    entrada.Ruta,
+                        Nombre:  nombre,
+                        EsDir:   false,
+                        Entrada: &entrada,
+                })
+        }
+
+        // Encontrar subdirectorios (componente inmediato bajo rutaActual)
+        subdirs := make(map[string]bool)
+        prefijo := ""
+        if rutaActual != "" {
+                prefijo = rutaActual + "/"
+        }
+        for dir := range porDir {
+                // Normalizar "." a ""
+                if dir == "." {
+                        dir = ""
+                }
+                if dir == rutaActual {
+                        continue
+                }
+                if rutaActual == "" {
+                        // dir es un path de primer nivel (e.g. "src")
+                        componente := strings.SplitN(dir, "/", 2)[0]
+                        if componente != "" {
+                                subdirs[componente] = true
+                        }
+                } else if strings.HasPrefix(dir, prefijo) {
+                        resto := strings.TrimPrefix(dir, prefijo)
+                        componente := strings.SplitN(resto, "/", 2)[0]
+                        if componente != "" {
+                                subdirs[componente] = true
+                        }
+                }
+        }
+
+        // Recursión sobre subdirectorios (ordenados para output determinista)
+        subs := make([]string, 0, len(subdirs))
+        for s := range subdirs {
+                subs = append(subs, s)
+        }
+        sort.Strings(subs)
+
+        for _, subdir := range subs {
+                rutaHija := subdir
+                if rutaActual != "" {
+                        rutaHija = rutaActual + "/" + subdir
+                }
+                hijo := &NodoArbol{
+                        Ruta:   rutaHija + "/",
+                        Nombre: subdir,
+                        EsDir:  true,
+                }
+                g.construirArbol(hijo, rutaHija, porDir)
+                nodo.Hijos = append(nodo.Hijos, hijo)
+        }
+}
+
+// calcularTotales recorre el árbol recursivamente y suma archivos y líneas.
+// Actualiza TotalArchivos y TotalLineas en CADA nodo (no solo en la raíz).
+func (g *GestorIndice) calcularTotales(nodo *NodoArbol) (totalArchivos, totalLineas int) {
+        if !nodo.EsDir {
+                if nodo.Entrada != nil {
+                        nodo.TotalArchivos = 1
+                        nodo.TotalLineas = nodo.Entrada.Lineas
+                        return 1, nodo.Entrada.Lineas
+                }
+                return 0, 0
+        }
+        for _, hijo := range nodo.Hijos {
+                a, l := g.calcularTotales(hijo)
+                totalArchivos += a
+                totalLineas += l
+        }
+        nodo.TotalArchivos = totalArchivos
+        nodo.TotalLineas = totalLineas
+        return
 }
 
 // ═══════════════════════════════════════════════════════
@@ -444,30 +620,57 @@ func hashContenido(contenido []byte) string {
 }
 
 // detectarLenguajeIndice detecta lenguaje por extensión.
+// Debe ser coherente con fragmentos.detectarLenguajeExt y mapa.detectarLenguaje.
 func detectarLenguajeIndice(ext string) string {
         switch ext {
         case ".go":
                 return "go"
         case ".py":
                 return "python"
-        case ".js":
+        case ".js", ".mjs", ".cjs":
                 return "javascript"
         case ".ts", ".tsx":
                 return "typescript"
+        case ".jsx":
+                return "javascript"
         case ".yaml", ".yml":
                 return "yaml"
         case ".json":
                 return "json"
-        case ".md":
+        case ".md", ".markdown":
                 return "markdown"
-        case ".html":
+        case ".html", ".htm":
                 return "html"
-        case ".css", ".scss":
+        case ".css", ".scss", ".sass", ".less":
                 return "css"
         case ".rs":
                 return "rust"
+        case ".java":
+                return "java"
+        case ".c", ".h":
+                return "c"
+        case ".cpp", ".hpp", ".cc", ".cxx":
+                return "cpp"
+        case ".sh", ".bash":
+                return "shell"
         case ".toml":
                 return "toml"
+        case ".rb":
+                return "ruby"
+        case ".php":
+                return "php"
+        case ".kt", ".kts":
+                return "kotlin"
+        case ".swift":
+                return "swift"
+        case ".scala":
+                return "scala"
+        case ".lua":
+                return "lua"
+        case ".r":
+                return "r"
+        case ".sql":
+                return "sql"
         default:
                 if ext == "" {
                         return ""
