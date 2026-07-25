@@ -124,15 +124,23 @@ func (c *Coordinador) IndexarProyecto(rutaProyecto string) (*EstadoProyecto, err
                 c.logFunc("advertencia: error guardando mapa: %v", err)
         }
 
-        // 2. Reconstruir índice
+        // 2. Detectar archivos modificados ANTES de reconstruir el índice.
+        // (Bug histórico: si Reconstruir se ejecuta primero, actualiza los hashes
+        // al valor actual del disco, y ArchivosModificados siempre retorna vacío.)
+        archivosModificados, _ := proy.Indice.ArchivosModificados(rutaAbs)
+
+        // 3. Reconstruir índice (refresca hashes, mtimes y tamaños)
         if err := proy.Indice.Reconstruir(rutaAbs); err != nil {
                 c.logFunc("advertencia: error reconstruyendo índice: %v", err)
         }
 
-        // 3. Fragmentar archivos
-        archivosModificados, _ := proy.Indice.ArchivosModificados(rutaAbs)
+        // 4. Fragmentar archivos modificados (refresh incremental)
         for _, archRuta := range archivosModificados {
                 rutaCompleta := filepath.Join(rutaAbs, archRuta)
+
+                // Eliminar fragmentos viejos de este archivo antes de re-fragmentar
+                _, _ = proy.Almacen.EliminarPorRuta(archRuta)
+
                 ids, err := proy.Almacen.AgregarDesdeArchivo(archRuta, rutaCompleta)
                 if err != nil {
                         c.logFunc("advertencia: error fragmentando %s: %v", archRuta, err)
@@ -144,7 +152,8 @@ func (c *Coordinador) IndexarProyecto(rutaProyecto string) (*EstadoProyecto, err
                 }
         }
 
-        // 4. Si no hay archivos modificados, hacer primera fragmentación completa
+        // 5. Primera indexación: si no había archivos modificados (índice vacío)
+        //    hacer fragmentación completa.
         if len(archivosModificados) == 0 {
                 err = filepath.WalkDir(rutaAbs, func(ruta string, d os.DirEntry, walkErr error) error {
                         if walkErr != nil || d.IsDir() {
@@ -152,7 +161,16 @@ func (c *Coordinador) IndexarProyecto(rutaProyecto string) (*EstadoProyecto, err
                         }
 
                         relativa, _ := filepath.Rel(rutaAbs, ruta)
-                        if relativa == "." || strings.HasPrefix(relativa, ".") {
+
+                        // Coherencia con mapa: respetar exclusiones de OpcionesMapa.
+                        // Los archivos ocultos normales (.gitignore, .env.example) SÍ se
+                        // fragmentan; solo se excluyen los directorios ocultos (.git/).
+                        if d.IsDir() {
+                                return nil
+                        }
+                        // Directorios padre ocultos (e.g. ".git/HEAD") se excluyen
+                        if strings.HasPrefix(relativa, ".git/") || strings.HasPrefix(relativa, ".svn/") ||
+                                strings.HasPrefix(relativa, ".hg/") || relativa == ".git" {
                                 return nil
                         }
 
@@ -175,7 +193,7 @@ func (c *Coordinador) IndexarProyecto(rutaProyecto string) (*EstadoProyecto, err
                 }
         }
 
-        // 5. Actualizar índice global
+        // 6. Actualizar índice global
         indiceGlobal := proy.Indice.Obtener()
 
         estado := &EstadoProyecto{
