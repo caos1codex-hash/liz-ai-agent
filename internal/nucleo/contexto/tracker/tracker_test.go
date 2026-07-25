@@ -42,7 +42,7 @@ func TestTracker_RingBuffer(t *testing.T) {
         tr := NuevoTracker(3)
         tr.RegistrarEdicion("a.go")
         tr.RegistrarEdicion("b.go")
-        tr.RegistrarEdicionar("c.go")
+        tr.RegistrarEdicion("c.go")
         tr.RegistrarEdicion("d.go") // debe eliminar "a.go"
 
         if tr.Total() != 3 {
