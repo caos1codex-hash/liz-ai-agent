@@ -1,6 +1,7 @@
 # Binarios
 bin/
-liz
+/liz
+*.exe
 
 # Go
 vendor/
