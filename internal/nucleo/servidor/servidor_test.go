@@ -269,3 +269,167 @@ func TestHealth_PermisosListos(t *testing.T) {
                 t.Error("health debería incluir permisos_listos")
         }
 }
+
+// ═══════════════════════════════════════════════════
+// FASE 3: Contexto
+// ═══════════════════════════════════════════════════
+
+func setupTestConContexto(t *testing.T) (*Servidor, *permisos.Sistema, *contexto.Coordinador) {
+        t.Helper()
+        var buf bytes.Buffer
+        cfg := config.ConfiguracionPorDefecto()
+        cfg.Servidor.Puerto = 0
+
+        log := logger.NuevaConSalida("test", &buf)
+
+        sisPermisos, err := permisos.NuevoSistemaConRecordar(false)
+        if err != nil {
+                t.Fatalf("error creando sistema permisos: %v", err)
+        }
+
+        tmpDir := t.TempDir()
+        coord, err := contexto.NuevoCoordinador(filepath.Join(tmpDir, "proyectos"))
+        if err != nil {
+                t.Fatalf("error creando coordinador: %v", err)
+        }
+
+        srv := NuevoConContexto(&config.Gestor{
+                rutaActiva: filepath.Join(tmpDir, "config.json"),
+                config:     cfg,
+                logFunc:    func(string, ...interface{}) {},
+        }, log, sisPermisos, coord)
+        return srv, sisPermisos, coord
+}
+
+func setupTestConCoordinador(t *testing.T) (*Servidor, *contexto.Coordinador) {
+        srv, _, coord := setupTestConContexto(t)
+        return srv, coord
+}
+
+func TestContexto_ListarProyectos(t *testing.T) {
+        srv, _ := setupTestConCoordinador(t)
+
+        req := httptest.NewRequest("GET", "/api/contexto/proyectos", nil)
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusOK {
+                t.Errorf("status esperado 200, obtuve %d", rec.Code)
+        }
+
+        resp := decodeResponse(t, rec)
+        if resp["exito"] != true {
+                t.Error("exito debería ser true")
+        }
+
+        datos := resp["datos"].(map[string]interface{})
+        if datos["total"] == nil {
+                t.Error("datos deberían incluir total")
+        }
+}
+
+func TestContexto_Indexar(t *testing.T) {
+        srv, coord := setupTestConCoordinador(t)
+
+        // Crear un proyecto de prueba
+        tmpDir := t.TempDir()
+        os.MkdirAll(filepath.Join(tmpDir, "cmd"), 0755)
+        os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("package main\n\nfunc main() {}"), 0644)
+        os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\ngo 1.21\n"), 0644)
+
+        body := fmt.Sprintf(`{"ruta": "%s"}`, tmpDir)
+        req := httptest.NewRequest("POST", "/api/contexto/indexar", bytes.NewBufferString(body))
+        req.Header.Set("Content-Type", "application/json")
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusOK {
+                t.Errorf("status esperado 200, obtuve %d. Body: %s", rec.Code, rec.Body.String())
+        }
+
+        resp := decodeResponse(t, rec)
+        if resp["exito"] != true {
+                t.Errorf("indexación falló: %v", resp["error"])
+        }
+
+        datos := resp["datos"].(map[string]interface{})
+        if datos["total_archivos"] == nil {
+                t.Error("respuesta debería incluir total_archivos")
+        }
+
+        // Verificar que se puede obtener el mapa
+        nombreProyecto := filepath.Base(tmpDir)
+        req2 := httptest.NewRequest("GET", "/api/contexto/mapa/"+nombreProyecto, nil)
+        rec2 := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec2, req2)
+
+        if rec2.Code != http.StatusOK {
+                t.Errorf("mapa debería ser accesible, status: %d. Body: %s", rec2.Code, rec2.Body.String())
+        }
+
+        _ = coord
+}
+
+func TestContexto_Indexar_SinRuta(t *testing.T) {
+        srv, _ := setupTestConCoordinador(t)
+
+        body := `{}`
+        req := httptest.NewRequest("POST", "/api/contexto/indexar", bytes.NewBufferString(body))
+        req.Header.Set("Content-Type", "application/json")
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusBadRequest {
+                t.Errorf("sin ruta debería ser 400, obtuve %d", rec.Code)
+        }
+}
+
+func TestContexto_Buscar(t *testing.T) {
+        srv, coord := setupTestConCoordinador(t)
+
+        // Crear e indexar un proyecto
+        tmpDir := t.TempDir()
+        os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("package main\nfunc main() {}"), 0644)
+        os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\ngo 1.21\n"), 0644)
+        coord.IndexarProyecto(tmpDir)
+
+        nombreProyecto := filepath.Base(tmpDir)
+        req := httptest.NewRequest("GET", "/api/contexto/buscar/"+nombreProyecto+"?q=go", nil)
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusOK {
+                t.Errorf("buscar debería ser 200, obtuve %d", rec.Code)
+        }
+
+        resp := decodeResponse(t, rec)
+        datos := resp["datos"].(map[string]interface{})
+        total := datos["total"].(float64)
+        if total == 0 {
+                t.Error("búsqueda de 'go' debería encontrar resultados")
+        }
+}
+
+func TestContexto_MapaNoExistente(t *testing.T) {
+        srv, _ := setupTestConCoordinador(t)
+
+        req := httptest.NewRequest("GET", "/api/contexto/mapa/proyecto_no_existente", nil)
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusNotFound {
+                t.Errorf("mapa inexistente debería ser 404, obtuve %d", rec.Code)
+        }
+}
+
+func TestContexto_BuscarSinQuery(t *testing.T) {
+        srv, _ := setupTestConCoordinador(t)
+
+        req := httptest.NewRequest("GET", "/api/contexto/buscar/mi_proyecto", nil)
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusBadRequest {
+                t.Errorf("sin parámetro 'q' debería ser 400, obtuve %d", rec.Code)
+        }
+}
