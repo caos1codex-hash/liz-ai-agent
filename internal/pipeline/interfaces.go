@@ -4,9 +4,9 @@ import (
 	"context"
 )
 
-// orquestadorCliente define la interfaz que el pipeline necesita del orquestador.
+// OrquestadorCliente define la interfaz que el pipeline necesita del orquestador.
 // Permite desacoplar y facilitar testing con mocks.
-type orquestadorCliente interface {
+type OrquestadorCliente interface {
 	Completar(ctx context.Context, prompt string, tipoTarea string) (string, error)
 	CompletarStream(ctx context.Context, prompt string, tipoTarea string) (<-chan ChunkOrquestador, error)
 	ModeloActual() string
@@ -20,8 +20,8 @@ type ChunkOrquestador struct {
 	Done    bool
 }
 
-// catalogoCliente define la interfaz que el pipeline necesita del catálogo de herramientas.
-type catalogoCliente interface {
+// CatalogoCliente define la interfaz que el pipeline necesita del catálogo de herramientas.
+type CatalogoCliente interface {
 	Existe(nombre string) bool
 	Ejecutar(ctx context.Context, nombre string, params map[string]interface{}) (*ResultadoHerramienta, error)
 	Snapshot() []InfoHerramientaSnapshot
@@ -42,8 +42,8 @@ type InfoHerramientaSnapshot struct {
 	Parametros interface{} `json:"parametros"`
 }
 
-// autoCreacionGestor define la interfaz para auto-creación de herramientas.
-type autoCreacionGestor interface {
+// AutoCreacionGestor define la interfaz para auto-creación de herramientas.
+type AutoCreacionGestor interface {
 	Crear(ctx context.Context, descripcion string) (*ResultadoAutoCreacion, error)
 }
 
@@ -54,13 +54,13 @@ type ResultadoAutoCreacion struct {
 	Error string      `json:"error,omitempty"`
 }
 
-// contextoCoordinador define la interfaz para el coordinador de contexto.
-type contextoCoordinador interface {
+// ContextoCoordinador define la interfaz para el coordinador de contexto.
+type ContextoCoordinador interface {
 	EmpaquetarContexto(ctx context.Context, proyecto, query string, maxTokens int) (string, error)
 }
 
-// memoriaGestor define la interfaz para el gestor de memoria.
-type memoriaGestor interface {
+// MemoriaGestor define la interfaz para el gestor de memoria.
+type MemoriaGestor interface {
 	ObtenerSesion(ctx context.Context, sesionID, usuarioID string) (*InfoSesion, error)
 	CrearSesion(ctx context.Context, usuarioID, proyecto string) (*InfoSesion, error)
 	AgregarMensaje(ctx context.Context, sesionID, usuarioID, contenido string) error

@@ -481,8 +481,9 @@ func TestHandlerStub_Chat_NotImplemented(t *testing.T) {
         rec := httptest.NewRecorder()
         srv.router.ServeHTTP(rec, req)
 
-        if rec.Code != http.StatusNotImplemented {
-                t.Errorf("Status = %d, se esperaba %d", rec.Code, http.StatusNotImplemented)
+        // Fase 7: /api/v1/chat ahora es un endpoint real. Sin pipeline retorna 503.
+        if rec.Code != http.StatusServiceUnavailable {
+                t.Errorf("Status = %d, se esperaba %d (503 sin pipeline)", rec.Code, http.StatusServiceUnavailable)
         }
 }
 

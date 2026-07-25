@@ -11,12 +11,12 @@ import (
 // Ejecutor ejecuta los pasos del plan, coordinando herramientas y auto-creación.
 // Maneja dependencias entre pasos y recopila resultados.
 type Ejecutor struct {
-        catalogo   catalogoCliente
-        autoGestor autoCreacionGestor
+        catalogo   CatalogoCliente
+        autoGestor AutoCreacionGestor
 }
 
 // nuevoEjecutor crea un Ejecutor con las dependencias inyectadas.
-func nuevoEjecutor(cat catalogoCliente, auto autoCreacionGestor) *Ejecutor {
+func nuevoEjecutor(cat CatalogoCliente, auto AutoCreacionGestor) *Ejecutor {
         return &Ejecutor{
                 catalogo:   cat,
                 autoGestor: auto,

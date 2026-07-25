@@ -12,6 +12,7 @@
 package main
 
 import (
+        "context"
         "flag"
         "fmt"
         "os"
@@ -30,6 +31,7 @@ import (
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/orquestador"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/permisos"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/servidor"
+        "github.com/caos1codex-hash/liz-ai-agent/internal/pipeline"
 )
 
 // versión del binario. Se actualiza en cada release.
@@ -218,13 +220,26 @@ func main() {
         }
         log.Info("Catálogo total (integradas + auto-creadas): %d herramientas", catalogo.Tamaño())
 
+        // --- Pipeline de Chat (Fase 7) ---
+        // End-to-end: mensaje → clasificación → planificación → ejecución → respuesta
+        log.Info("Inicializando pipeline de chat (Fase 7)")
+        pipelineMgr := pipeline.Nuevo(pipeline.NuevasOpciones{
+                Orquestador:  crearAdaptadorOrquestador(orch),
+                Catalogo:     crearAdaptadorCatalogo(catalogo),
+                Memoria:      crearAdaptadorMemoria(gestorMem),
+                AutoGestor:   crearAdaptadorAutoCreacion(autoGestor),
+                ContextoCoord: crearAdaptadorContexto(coordinador),
+        })
+        log.Info("Pipeline de chat inicializado: receptor + clasificador + planificador + ejecutor + respondedor")
+
         // --- Servidor ---
         log.Info("Creando servidor HTTP")
         srv := servidor.Nuevo(gestorCfg, gestorPer, log).
                 ConCoordinador(coordinador).
                 ConMemoria(gestorMem).
                 ConCatalogo(catalogo).
-                ConAutoGestor(autoGestor)
+                ConAutoGestor(autoGestor).
+                ConPipeline(pipelineMgr)
         if orch != nil {
                 srv = srv.ConOrquestador(orch)
         }
@@ -252,6 +267,7 @@ func main() {
         log.Info("Endpoints de memoria disponibles en /api/v1/memoria/*")
         log.Info("Endpoints de herramientas disponibles en /api/v1/herramientas/*")
         log.Info("Endpoints de auto-creación disponibles en /api/v1/herramientas/auto-creadas/* y /api/v1/herramientas/auto-crear")
+        log.Info("Endpoints del pipeline de chat disponibles en /api/v1/chat/*")
         if orch != nil {
                 log.Info("Endpoints del orquestador disponibles en /api/v1/orquestador/*")
         }
@@ -260,4 +276,221 @@ func main() {
                 log.Error("Error al iniciar servidor: %v", err)
                 os.Exit(1)
         }
+}
+
+// ============================================================================
+// Adaptadores: conectan implementaciones reales con interfaces del pipeline
+// ============================================================================
+
+// crearAdaptadorOrquestador adapta el Orquestador real a la interfaz del pipeline.
+func crearAdaptadorOrquestador(orch *orquestador.Orquestador) pipeline.OrquestadorCliente {
+        if orch == nil {
+                return nil
+        }
+        return &pipelineOrquestadorAdapter{orch: orch}
+}
+
+type pipelineOrquestadorAdapter struct {
+        orch *orquestador.Orquestador
+}
+
+func (a *pipelineOrquestadorAdapter) Completar(ctx context.Context, prompt string, tipoTarea string) (string, error) {
+        req := orquestador.SolicitudChat{
+                Tarea:    orquestador.TipoTarea(tipoTarea),
+                Mensajes: []orquestador.MensajeChat{{
+                        Rol:    "system",
+                        Contenido: prompt,
+                }},
+        }
+        resp, err := a.orch.Completar(req)
+        if err != nil {
+                return "", err
+        }
+        return resp.Contenido, nil
+}
+
+func (a *pipelineOrquestadorAdapter) CompletarStream(ctx context.Context, prompt string, tipoTarea string) (<-chan pipeline.ChunkOrquestador, error) {
+        req := orquestador.SolicitudChat{
+                Tarea:   orquestador.TipoTarea(tipoTarea),
+                Stream: true,
+                Mensajes: []orquestador.MensajeChat{{
+                        Rol:    "system",
+                        Contenido: prompt,
+                }},
+        }
+        ch, err := a.orch.CompletarStream(ctx, req)
+        if err != nil {
+                return nil, err
+        }
+        // Adaptar el canal del orquestador real al del pipeline
+        out := make(chan pipeline.ChunkOrquestador, 10)
+        go func() {
+                defer close(out)
+                for chunk := range ch {
+                        out <- pipeline.ChunkOrquestador{
+                                Delta:  chunk.Contenido,
+                                Modelo: chunk.ModeloUsado,
+                                Error:  chunk.Error,
+                                Done:   chunk.Acabado,
+                        }
+                }
+        }()
+        return out, nil
+}
+
+func (a *pipelineOrquestadorAdapter) ModeloActual() string {
+        return "nvidia"
+}
+
+// crearAdaptadorCatalogo adapta el Catálogo real a la interfaz del pipeline.
+func crearAdaptadorCatalogo(cat *registro.Catalogo) pipeline.CatalogoCliente {
+        if cat == nil {
+                return nil
+        }
+        return &pipelineCatalogoAdapter{cat: cat}
+}
+
+type pipelineCatalogoAdapter struct {
+        cat *registro.Catalogo
+}
+
+func (a *pipelineCatalogoAdapter) Existe(nombre string) bool {
+        return a.cat.Existe(nombre)
+}
+
+func (a *pipelineCatalogoAdapter) Ejecutar(ctx context.Context, nombre string, params map[string]interface{}) (*pipeline.ResultadoHerramienta, error) {
+        res, err := a.cat.Ejecutar(ctx, nombre, params)
+        if err != nil {
+                return nil, err
+        }
+        return &pipeline.ResultadoHerramienta{
+                Exito:    res.Exito,
+                Datos:    res.Datos,
+                Error:    res.Error,
+                Metadata: res.Metadata,
+        }, nil
+}
+
+func (a *pipelineCatalogoAdapter) Snapshot() []pipeline.InfoHerramientaSnapshot {
+        snap := a.cat.Snapshot()
+        result := make([]pipeline.InfoHerramientaSnapshot, len(snap))
+        for i, s := range snap {
+                result[i] = pipeline.InfoHerramientaSnapshot{
+                        Nombre:     s.Nombre,
+                        Descripcion: s.Descripcion,
+                        Parametros: s.Parametros,
+                }
+        }
+        return result
+}
+
+// crearAdaptadorMemoria adapta el Gestor de memoria real.
+func crearAdaptadorMemoria(gm *memoria.Gestor) pipeline.MemoriaGestor {
+        if gm == nil {
+                return nil
+        }
+        return &pipelineMemoriaAdapter{gm: gm}
+}
+
+type pipelineMemoriaAdapter struct {
+        gm *memoria.Gestor
+}
+
+func (a *pipelineMemoriaAdapter) ObtenerSesion(ctx context.Context, sesionID, usuarioID string) (*pipeline.InfoSesion, error) {
+        s, err := a.gm.Sesiones().ObtenerSesion(sesionID)
+        if err != nil {
+                return nil, err
+        }
+        return &pipeline.InfoSesion{ID: s.ID, UsuarioID: s.UsuarioID, Proyecto: s.Proyecto, Titulo: s.Titulo}, nil
+}
+
+func (a *pipelineMemoriaAdapter) CrearSesion(ctx context.Context, usuarioID, proyecto string) (*pipeline.InfoSesion, error) {
+        s, err := a.gm.NuevaSesion(usuarioID, proyecto)
+        if err != nil {
+                return nil, err
+        }
+        return &pipeline.InfoSesion{ID: s.ID, UsuarioID: s.UsuarioID, Proyecto: s.Proyecto}, nil
+}
+
+func (a *pipelineMemoriaAdapter) AgregarMensaje(ctx context.Context, sesionID, usuarioID, contenido string) error {
+        _, err := a.gm.AgregarMensaje(usuarioID, memoria.RolUsuario, contenido)
+        return err
+}
+
+func (a *pipelineMemoriaAdapter) ObtenerMensajesRecientes(sesionID string, limite int) []pipeline.InfoMensaje {
+        // Buscar sesión por ID para obtener usuarioID
+        sesiones := a.gm.Sesiones()
+        // Obtenemos los mensajes más recientes usando el gestor de sesiones
+        sesion, err := sesiones.ObtenerSesion(sesionID)
+        if err != nil {
+                return nil
+        }
+        msgs := sesiones.UltimosMensajes(sesion.UsuarioID, limite)
+        result := make([]pipeline.InfoMensaje, len(msgs))
+        for i, m := range msgs {
+                result[i] = pipeline.InfoMensaje{Rol: string(m.Rol), Contenido: m.Contenido}
+        }
+        return result
+}
+
+func (a *pipelineMemoriaAdapter) ObtenerHechos(usuarioID string, limite int) string {
+        ctx, err := a.gm.Hechos().FormatoContexto(usuarioID, limite)
+        if err != nil {
+                return ""
+        }
+        return ctx
+}
+
+func (a *pipelineMemoriaAdapter) ContextoParaLLM(usuarioID string, ultimosNMensajes int, limiteHechos int) string {
+        ctx, err := a.gm.ContextoParaLLM(usuarioID, ultimosNMensajes, limiteHechos)
+        if err != nil {
+                return ""
+        }
+        return ctx
+}
+
+// crearAdaptadorAutoCreacion adapta el gestor de auto-creación.
+func crearAdaptadorAutoCreacion(ag *auto_creacion.Gestor) pipeline.AutoCreacionGestor {
+        if ag == nil {
+                return nil
+        }
+        return &pipelineAutoCreacionAdapter{ag: ag}
+}
+
+type pipelineAutoCreacionAdapter struct {
+        ag *auto_creacion.Gestor
+}
+
+func (a *pipelineAutoCreacionAdapter) Crear(ctx context.Context, descripcion string) (*pipeline.ResultadoAutoCreacion, error) {
+        sol := auto_creacion.SolicitudCreacion{Descripcion: descripcion}
+        _, err := a.ag.Crear(ctx, sol)
+        if err != nil {
+                return &pipeline.ResultadoAutoCreacion{Exito: false, Error: err.Error()}, nil
+        }
+        return &pipeline.ResultadoAutoCreacion{Exito: true, Datos: "herramienta creada"}, nil
+}
+
+// crearAdaptadorContexto adapta el coordinador de contexto.
+func crearAdaptadorContexto(coord *contexto.Coordinador) pipeline.ContextoCoordinador {
+        if coord == nil {
+                return nil
+        }
+        return &pipelineContextoAdapter{coord: coord}
+}
+
+type pipelineContextoAdapter struct {
+        coord *contexto.Coordinador
+}
+
+func (a *pipelineContextoAdapter) EmpaquetarContexto(ctx context.Context, proyecto, query string, maxTokens int) (string, error) {
+        req := contexto.EmpaquetarSolicitud{
+                Proyecto:          proyecto,
+                Query:             query,
+                PresupuestoTokens: maxTokens,
+        }
+        result, err := a.coord.EmpaquetarContexto(req)
+        if err != nil {
+                return "", err
+        }
+        return result.Contenido, nil
 }

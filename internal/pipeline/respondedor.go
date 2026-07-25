@@ -9,12 +9,12 @@ import (
 // Respondedor genera la respuesta final usando el LLM.
 // Soporta tanto respuesta completa (JSON) como streaming (SSE).
 type Respondedor struct {
-        orquestador orquestadorCliente
-        memoria     memoriaGestor
+        orquestador OrquestadorCliente
+        memoria     MemoriaGestor
 }
 
 // nuevoRespondedor crea un Respondedor con las dependencias inyectadas.
-func nuevoRespondedor(orch orquestadorCliente, mem memoriaGestor) *Respondedor {
+func nuevoRespondedor(orch OrquestadorCliente, mem MemoriaGestor) *Respondedor {
         return &Respondedor{
                 orquestador: orch,
                 memoria:     mem,

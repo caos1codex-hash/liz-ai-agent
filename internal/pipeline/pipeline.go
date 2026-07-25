@@ -25,11 +25,11 @@ type Pipeline struct {
         respondedor  *Respondedor
 
         // Dependencias inyectadas
-        memoria      memoriaGestor
-        orquestador  orquestadorCliente
-        catalogo     catalogoCliente
-        autoGestor   autoCreacionGestor
-        contextoCoord contextoCoordinador
+        memoria      MemoriaGestor
+        orquestador  OrquestadorCliente
+        catalogo     CatalogoCliente
+        autoGestor   AutoCreacionGestor
+        contextoCoord ContextoCoordinador
 
         // Métricas
         mensajesProcesados int64
@@ -41,11 +41,11 @@ type Pipeline struct {
 
 // NuevasOpciones permite configurar el Pipeline con dependencias opcionales.
 type NuevasOpciones struct {
-        Orquestador  orquestadorCliente
-        Catalogo     catalogoCliente
-        Memoria      memoriaGestor
-        AutoGestor   autoCreacionGestor
-        ContextoCoord contextoCoordinador
+        Orquestador  OrquestadorCliente
+        Catalogo     CatalogoCliente
+        Memoria      MemoriaGestor
+        AutoGestor   AutoCreacionGestor
+        ContextoCoord ContextoCoordinador
 }
 
 // Nuevo crea un Pipeline con las dependencias inyectadas.

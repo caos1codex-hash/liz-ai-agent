@@ -11,7 +11,7 @@ type AdaptadorOrquestador struct {
 	modeloActualFunc   func() string
 }
 
-// Completar implementa orquestadorCliente.
+// Completar implementa OrquestadorCliente.
 func (a *AdaptadorOrquestador) Completar(ctx context.Context, prompt string, tipoTarea string) (string, error) {
 	if a.completarFunc != nil {
 		return a.completarFunc(ctx, prompt, tipoTarea)
@@ -19,7 +19,7 @@ func (a *AdaptadorOrquestador) Completar(ctx context.Context, prompt string, tip
 	return "", nil
 }
 
-// CompletarStream implementa orquestadorCliente.
+// CompletarStream implementa OrquestadorCliente.
 func (a *AdaptadorOrquestador) CompletarStream(ctx context.Context, prompt string, tipoTarea string) (<-chan ChunkOrquestador, error) {
 	if a.completarStreamFunc != nil {
 		return a.completarStreamFunc(ctx, prompt, tipoTarea)
@@ -29,7 +29,7 @@ func (a *AdaptadorOrquestador) CompletarStream(ctx context.Context, prompt strin
 	return ch, nil
 }
 
-// ModeloActual implementa orquestadorCliente.
+// ModeloActual implementa OrquestadorCliente.
 func (a *AdaptadorOrquestador) ModeloActual() string {
 	if a.modeloActualFunc != nil {
 		return a.modeloActualFunc()
@@ -44,7 +44,7 @@ type AdaptadorCatalogo struct {
 	snapshotFunc func() []InfoHerramientaSnapshot
 }
 
-// Existe implementa catalogoCliente.
+// Existe implementa CatalogoCliente.
 func (a *AdaptadorCatalogo) Existe(nombre string) bool {
 	if a.existeFunc != nil {
 		return a.existeFunc(nombre)
@@ -52,7 +52,7 @@ func (a *AdaptadorCatalogo) Existe(nombre string) bool {
 	return false
 }
 
-// Ejecutar implementa catalogoCliente.
+// Ejecutar implementa CatalogoCliente.
 func (a *AdaptadorCatalogo) Ejecutar(ctx context.Context, nombre string, params map[string]interface{}) (*ResultadoHerramienta, error) {
 	if a.ejecutarFunc != nil {
 		return a.ejecutarFunc(ctx, nombre, params)
@@ -60,7 +60,7 @@ func (a *AdaptadorCatalogo) Ejecutar(ctx context.Context, nombre string, params 
 	return nil, nil
 }
 
-// Snapshot implementa catalogoCliente.
+// Snapshot implementa CatalogoCliente.
 func (a *AdaptadorCatalogo) Snapshot() []InfoHerramientaSnapshot {
 	if a.snapshotFunc != nil {
 		return a.snapshotFunc()
@@ -78,7 +78,7 @@ type AdaptadorMemoria struct {
 	contextoParaLLMFunc      func(usuarioID string, ultimosNMensajes int, limiteHechos int) string
 }
 
-// ObtenerSesion implementa memoriaGestor.
+// ObtenerSesion implementa MemoriaGestor.
 func (a *AdaptadorMemoria) ObtenerSesion(ctx context.Context, sesionID, usuarioID string) (*InfoSesion, error) {
 	if a.obtenerSesionFunc != nil {
 		return a.obtenerSesionFunc(ctx, sesionID, usuarioID)
@@ -86,7 +86,7 @@ func (a *AdaptadorMemoria) ObtenerSesion(ctx context.Context, sesionID, usuarioI
 	return nil, nil
 }
 
-// CrearSesion implementa memoriaGestor.
+// CrearSesion implementa MemoriaGestor.
 func (a *AdaptadorMemoria) CrearSesion(ctx context.Context, usuarioID, proyecto string) (*InfoSesion, error) {
 	if a.crearSesionFunc != nil {
 		return a.crearSesionFunc(ctx, usuarioID, proyecto)
@@ -94,7 +94,7 @@ func (a *AdaptadorMemoria) CrearSesion(ctx context.Context, usuarioID, proyecto 
 	return &InfoSesion{ID: generarUUID(), UsuarioID: usuarioID, Proyecto: proyecto}, nil
 }
 
-// AgregarMensaje implementa memoriaGestor.
+// AgregarMensaje implementa MemoriaGestor.
 func (a *AdaptadorMemoria) AgregarMensaje(ctx context.Context, sesionID, usuarioID, contenido string) error {
 	if a.agregarMensajeFunc != nil {
 		return a.agregarMensajeFunc(ctx, sesionID, usuarioID, contenido)
@@ -102,7 +102,7 @@ func (a *AdaptadorMemoria) AgregarMensaje(ctx context.Context, sesionID, usuario
 	return nil
 }
 
-// ObtenerMensajesRecientes implementa memoriaGestor.
+// ObtenerMensajesRecientes implementa MemoriaGestor.
 func (a *AdaptadorMemoria) ObtenerMensajesRecientes(sesionID string, limite int) []InfoMensaje {
 	if a.obtenerMensajesRecientesFunc != nil {
 		return a.obtenerMensajesRecientesFunc(sesionID, limite)
@@ -110,7 +110,7 @@ func (a *AdaptadorMemoria) ObtenerMensajesRecientes(sesionID string, limite int)
 	return nil
 }
 
-// ObtenerHechos implementa memoriaGestor.
+// ObtenerHechos implementa MemoriaGestor.
 func (a *AdaptadorMemoria) ObtenerHechos(usuarioID string, limite int) string {
 	if a.obtenerHechosFunc != nil {
 		return a.obtenerHechosFunc(usuarioID, limite)
@@ -118,7 +118,7 @@ func (a *AdaptadorMemoria) ObtenerHechos(usuarioID string, limite int) string {
 	return ""
 }
 
-// ContextoParaLLM implementa memoriaGestor.
+// ContextoParaLLM implementa MemoriaGestor.
 func (a *AdaptadorMemoria) ContextoParaLLM(usuarioID string, ultimosNMensajes int, limiteHechos int) string {
 	if a.contextoParaLLMFunc != nil {
 		return a.contextoParaLLMFunc(usuarioID, ultimosNMensajes, limiteHechos)
@@ -131,7 +131,7 @@ type AdaptadorAutoCreacion struct {
 	crearFunc func(ctx context.Context, descripcion string) (*ResultadoAutoCreacion, error)
 }
 
-// Crear implementa autoCreacionGestor.
+// Crear implementa AutoCreacionGestor.
 func (a *AdaptadorAutoCreacion) Crear(ctx context.Context, descripcion string) (*ResultadoAutoCreacion, error) {
 	if a.crearFunc != nil {
 		return a.crearFunc(ctx, descripcion)
@@ -144,7 +144,7 @@ type AdaptadorContexto struct {
 	empaquetarFunc func(ctx context.Context, proyecto, query string, maxTokens int) (string, error)
 }
 
-// EmpaquetarContexto implementa contextoCoordinador.
+// EmpaquetarContexto implementa ContextoCoordinador.
 func (a *AdaptadorContexto) EmpaquetarContexto(ctx context.Context, proyecto, query string, maxTokens int) (string, error) {
 	if a.empaquetarFunc != nil {
 		return a.empaquetarFunc(ctx, proyecto, query, maxTokens)

@@ -10,11 +10,11 @@ import (
 // Receptor se encarga de recibir, validar y almacenar mensajes del usuario.
 // Gestiona la integración con el sistema de memoria para sesiones y mensajes.
 type Receptor struct {
-        memoria memoriaGestor
+        memoria MemoriaGestor
 }
 
 // nuevoReceptor crea un Receptor con el gestor de memoria inyectado.
-func nuevoReceptor(mem memoriaGestor) *Receptor {
+func nuevoReceptor(mem MemoriaGestor) *Receptor {
         return &Receptor{memoria: mem}
 }
 

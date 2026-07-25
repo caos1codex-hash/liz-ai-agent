@@ -9,11 +9,11 @@ import (
 // Clasificador determina la intención del usuario y la categoría de la tarea.
 // Usa un enfoque híbrido: primero heurísticas rápidas, luego LLM para casos ambiguos.
 type Clasificador struct {
-	orquestador orquestadorCliente
+	orquestador OrquestadorCliente
 }
 
 // nuevoClasificador crea un Clasificador con el orquestador inyectado.
-func nuevoClasificador(orch orquestadorCliente) *Clasificador {
+func nuevoClasificador(orch OrquestadorCliente) *Clasificador {
 	return &Clasificador{orquestador: orch}
 }
 

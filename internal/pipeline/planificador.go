@@ -11,18 +11,18 @@ import (
 // Determina qué herramientas son necesarias y en qué orden.
 // Puede solicitar auto-creación de herramientas faltantes.
 type Planificador struct {
-	orquestador    orquestadorCliente
-	catalogo       catalogoCliente
-	autoGestor     autoCreacionGestor
-	contextoCoord  contextoCoordinador
+	orquestador    OrquestadorCliente
+	catalogo       CatalogoCliente
+	autoGestor     AutoCreacionGestor
+	contextoCoord  ContextoCoordinador
 }
 
 // nuevoPlanificador crea un Planificador con todas las dependencias inyectadas.
 func nuevoPlanificador(
-	orch orquestadorCliente,
-	cat catalogoCliente,
-	auto autoCreacionGestor,
-	ctxCoord contextoCoordinador,
+	orch OrquestadorCliente,
+	cat CatalogoCliente,
+	auto AutoCreacionGestor,
+	ctxCoord ContextoCoordinador,
 ) *Planificador {
 	return &Planificador{
 		orquestador:   orch,
