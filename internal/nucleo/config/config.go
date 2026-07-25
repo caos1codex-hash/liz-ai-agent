@@ -8,6 +8,7 @@ import (
         "strconv"
         "strings"
         "sync"
+        "time"
 
         "gopkg.in/yaml.v3"
 )
@@ -728,6 +729,36 @@ func aplicarDefaults(cfg *Configuracion) {
         }
         if cfg.Contexto.TamanoContexto == 0 {
                 cfg.Contexto.TamanoContexto = 128000
+        }
+
+        // Defaults de modelos: si no hay ninguno, usar un modelo NVIDIA por defecto
+        // para que la configuración mínima sea válida.
+        if len(cfg.Modelos) == 0 {
+                cfg.Modelos = []ConfiguracionModelo{
+                        {
+                                Nombre:      "Llama 3.1 70B",
+                                Proveedor:   "nvidia",
+                                URL:         "https://integrate.api.nvidia.com/v1",
+                                Temperatura: 0.7,
+                                TopP:        0.9,
+                                MaxTokens:   4096,
+                                Rol:         "principal",
+                                Habilitado:  true,
+                        },
+                }
+        }
+
+        // Defaults de herramientas: si no hay ninguna, registrar las básicas
+        if len(cfg.Herramientas) == 0 {
+                cfg.Herramientas = []ConfiguracionHerramienta{
+                        {Nombre: "terminal", Habilitado: true},
+                        {Nombre: "navegador_archivos", Habilitado: true},
+                        {Nombre: "buscador", Habilitado: true},
+                        {Nombre: "editor", Habilitado: true},
+                        {Nombre: "procesos", Habilitado: true},
+                        {Nombre: "monitor", Habilitado: true},
+                        {Nombre: "instalador", Habilitado: true},
+                }
         }
 }
 

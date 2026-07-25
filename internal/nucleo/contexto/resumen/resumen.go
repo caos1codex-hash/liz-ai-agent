@@ -34,28 +34,32 @@ func TipoArchivo(ruta string) string {
         base := strings.ToLower(filepath.Base(ruta))
         ext := strings.ToLower(filepath.Ext(ruta))
 
-        // Tests
+        // Tests: sufijos comunes (_test.go, _test.py, .test.js, .spec.ts, etc.)
         if strings.HasSuffix(base, "_test.go") || strings.HasSuffix(base, "_test.py") ||
-                strings.HasSuffix(base, "_test.js") || strings.HasSuffix(base, "_test.ts") {
+                strings.HasSuffix(base, "_test.js") || strings.HasSuffix(base, "_test.ts") ||
+                strings.HasSuffix(base, ".test.js") || strings.HasSuffix(base, ".test.ts") ||
+                strings.HasSuffix(base, ".spec.js") || strings.HasSuffix(base, ".spec.ts") ||
+                strings.HasPrefix(base, "test_") {
                 return "test"
         }
 
         switch ext {
-        case ".go", ".py", ".js", ".ts", ".rs", ".java", ".c", ".cpp":
+        case ".go", ".py", ".js", ".jsx", ".ts", ".tsx", ".rs", ".java", ".c", ".cpp", ".h", ".hpp":
                 return "codigo"
-        case ".yaml", ".yml", ".toml", ".json", ".env":
+        case ".yaml", ".yml", ".toml", ".json", ".env", ".ini", ".cfg":
                 return "config"
         case ".md", ".rst", ".txt":
                 return "docs"
-        case ".html", ".htm", ".css", ".scss":
+        case ".html", ".htm", ".css", ".scss", ".sass", ".less":
                 return "frontend"
-        case ".sh", ".bash":
+        case ".sh", ".bash", ".zsh", ".fish":
                 return "script"
         default:
-                if base == "Makefile" || base == "dockerfile" {
+                // Archivos sin extensión relevantes
+                switch base {
+                case "makefile", "dockerfile", "justfile", "rakefile", "gemfile":
                         return "script"
-                }
-                if base == "license" || base == "readme" || base == "contributing" || base == "changelog" {
+                case "license", "readme", "contributing", "changelog", "authors", "notice":
                         return "docs"
                 }
                 return "otro"

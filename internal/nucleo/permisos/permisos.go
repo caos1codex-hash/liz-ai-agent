@@ -333,13 +333,9 @@ func (g *Gestor) VerificarSubPermiso(tipo TipoPermiso, subNombre string) bool {
                 return false
         }
 
-        // Si el nivel es "total", todos los sub-permisos están concedidos
-        if reg.Nivel == NivelTotal {
-                g.registrarAuditoriaLectura(tipo, subNombre, "concedido", "nivel total")
-                return true
-        }
-
-        // Verificar el sub-permiso específico
+        // Verificar el sub-permiso específico PRIMERO.
+        // Esto permite revocaciones puntuales (overrides) incluso cuando el
+        // nivel del permiso padre es "total".
         for _, sp := range reg.SubPermisos {
                 if sp.Nombre == subNombre {
                         resultado := "concedido"
@@ -349,6 +345,13 @@ func (g *Gestor) VerificarSubPermiso(tipo TipoPermiso, subNombre string) bool {
                         g.registrarAuditoriaLectura(tipo, subNombre, resultado, "")
                         return sp.Concedido
                 }
+        }
+
+        // Si el nivel padre es "total" y el sub-permiso no está definido explícitamente,
+        // todos los sub-permisos implícitos están concedidos.
+        if reg.Nivel == NivelTotal {
+                g.registrarAuditoriaLectura(tipo, subNombre, "concedido", "nivel total (implícito)")
+                return true
         }
 
         // Sub-permiso no encontrado — denegar por defecto
@@ -633,6 +636,8 @@ func subPermisosPorDefecto(tipo TipoPermiso) []SubPermiso {
 
 // completarPermisosFaltantes asegura que todos los tipos de permisos existan
 // después de cargar desde disco (por si se agregaron tipos nuevos).
+// NOTA: No incrementa la versión, ya que esto es una migración automática
+// que ocurre durante la carga inicial, no una acción del usuario.
 func (g *Gestor) completarPermisosFaltantes() {
         ahora := time.Now()
         modificado := false
@@ -654,7 +659,8 @@ func (g *Gestor) completarPermisosFaltantes() {
         }
 
         if modificado {
-                g.estado.Version++
+                // Solo persistir, sin bump de versión — esto es una migración
+                // automática invisible al usuario, no un cambio explícito.
                 _ = g.guardar()
         }
 }

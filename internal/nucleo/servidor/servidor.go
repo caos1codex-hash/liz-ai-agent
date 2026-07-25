@@ -11,6 +11,7 @@ import (
         "time"
 
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/config"
+        "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/logger"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/permisos"
         "github.com/gorilla/mux"
@@ -48,11 +49,13 @@ type RespuestaPermisoPost struct {
 // Servidor es el servidor HTTP principal de Liz.
 // Contiene el router, las dependencias inyectadas y la configuración.
 type Servidor struct {
-        router    *mux.Router
-        httpServ  *http.Server
-        gestorCfg *config.Gestor
-        gestorPer *permisos.Gestor
-        log       *logger.Logger
+        router     *mux.Router
+        httpServ   *http.Server
+        gestorCfg  *config.Gestor
+        gestorPer  *permisos.Gestor
+        gestorCtx  *contexto.Coordinador // opcional, se inyecta en Fase 3
+        log        *logger.Logger
+        inicio     time.Time
 }
 
 // ============================================================================
@@ -67,6 +70,7 @@ func Nuevo(gestorCfg *config.Gestor, gestorPer *permisos.Gestor, log *logger.Log
                 gestorCfg: gestorCfg,
                 gestorPer: gestorPer,
                 log:       log,
+                inicio:    time.Now(),
         }
 
         s.registrarRutas()
@@ -202,7 +206,7 @@ func (s *Servidor) handlerConfigPut(w http.ResponseWriter, r *http.Request) {
 
         // Persistir
         if err := s.gestorCfg.Guardar(); err != nil {
-                s.log.Advertencia("servidor", "Error al guardar configuración: %v", err)
+                s.log.Warn("Error al guardar configuración: %v", err)
                 // No fallar — el cambio está en memoria
         }
 
@@ -246,7 +250,7 @@ func (s *Servidor) handlerConfigRecargar(w http.ResponseWriter, r *http.Request)
                 return
         }
 
-        s.log.Info("servidor", "Configuración recargada desde disco (%d cambios detectados)", len(cambios))
+        s.log.Info("Configuración recargada desde disco (%d cambios detectados)", len(cambios))
 
         s.responderJSON(w, http.StatusOK, RespuestaAPI{
                 Exito:     true,
@@ -315,7 +319,7 @@ func (s *Servidor) handlerPermisosPost(w http.ResponseWriter, r *http.Request) {
                 return
         }
 
-        s.log.Info("servidor", "Permiso %s concedido con nivel %s via API", tipo, nivel)
+        s.log.Info("Permiso %s concedido con nivel %s via API", tipo, nivel)
 
         s.responderJSON(w, http.StatusOK, RespuestaAPI{
                 Exito:     true,
@@ -376,7 +380,7 @@ func (s *Servidor) middlewareLogging(next http.Handler) http.Handler {
                 next.ServeHTTP(rec, r)
 
                 duracion := time.Since(inicio)
-                s.log.Info("http", "%s %s → %d (%s)", r.Method, r.URL.Path, rec.statusCode, duracion)
+                s.log.Info("%s %s → %d (%s)", r.Method, r.URL.Path, rec.statusCode, duracion)
         })
 }
 
@@ -402,7 +406,7 @@ func (s *Servidor) middlewareRecuperacionPanic(next http.Handler) http.Handler {
         return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
                 defer func() {
                         if err := recover(); err != nil {
-                                s.log.Error("servidor", "PANIC recuperado en %s %s: %v", r.Method, r.URL.Path, err)
+                                s.log.Error("PANIC recuperado en %s %s: %v", r.Method, r.URL.Path, err)
                                 s.responderError(w, http.StatusInternalServerError, "Error interno del servidor")
                         }
                 }()
@@ -463,7 +467,7 @@ func (s *Servidor) Iniciar() error {
         go func() {
                 puerto := s.gestorCfg.ObtenerPuerto()
                 host := s.gestorCfg.ObtenerHost()
-                s.log.Info("servidor", "Servidor Liz iniciado en %s:%d", host, puerto)
+                s.log.Info( "Servidor Liz iniciado en %s:%d", host, puerto)
                 if err := s.httpServ.ListenAndServe(); err != nil && err != http.ErrServerClosed {
                         chanError <- err
                 }
@@ -474,15 +478,15 @@ func (s *Servidor) Iniciar() error {
         case err := <-chanError:
                 return fmt.Errorf("error del servidor: %w", err)
         case sig := <-chanSignal:
-                s.log.Info("servidor", "Señal recibida: %v — iniciando shutdown graceful", sig)
+                s.log.Info( "Señal recibida: %v — iniciando shutdown graceful", sig)
 
                 // SIGHUP → recargar configuración
                 if sig == syscall.SIGHUP {
-                        s.log.Info("servidor", "SIGHUP recibido — recargando configuración")
+                        s.log.Info( "SIGHUP recibido — recargando configuración")
                         if cambios, err := s.gestorCfg.Recargar(); err != nil {
-                                s.log.Error("servidor", "Error al recargar configuración: %v", err)
+                                s.log.Error( "Error al recargar configuración: %v", err)
                         } else {
-                                s.log.Info("servidor", "Configuración recargada: %d cambios", len(cambios))
+                                s.log.Info( "Configuración recargada: %d cambios", len(cambios))
                         }
                         // No cerrar, seguir ejecutando
                         return nil
@@ -496,7 +500,7 @@ func (s *Servidor) Iniciar() error {
                         return fmt.Errorf("error en shutdown graceful: %w", err)
                 }
 
-                s.log.Info("servidor", "Servidor detenido correctamente")
+                s.log.Info( "Servidor detenido correctamente")
         }
 
         return nil
