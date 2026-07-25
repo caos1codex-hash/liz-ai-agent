@@ -491,3 +491,66 @@ func (s *Servidor) handlerMemoriaContexto(w http.ResponseWriter, r *http.Request
 func parseIntSafe(s string) (int, error) {
         return strconv.Atoi(s)
 }
+
+// ============================================================================
+// Handlers — Tracker de Ediciones (Fase 4)
+// ============================================================================
+
+// SolicitudRegistrarEdicion es el body para registrar una edición.
+type SolicitudRegistrarEdicion struct {
+        Proyecto string `json:"proyecto"`
+        Ruta     string `json:"ruta"`
+}
+
+// handlerTrackerRegistrarEdicion registra una edición de archivo.
+func (s *Servidor) handlerTrackerRegistrarEdicion(w http.ResponseWriter, r *http.Request) {
+        if !s.requiereCoordinador(w) {
+                return
+        }
+
+        var req SolicitudRegistrarEdicion
+        if err := s.parsearBody(r, &req); err != nil {
+                s.responderError(w, http.StatusBadRequest, "body inválido: "+err.Error())
+                return
+        }
+        if req.Proyecto == "" || req.Ruta == "" {
+                s.responderError(w, http.StatusBadRequest, "proyecto y ruta son requeridos")
+                return
+        }
+
+        s.gestorCtx.RegistrarEdicion(req.Proyecto, req.Ruta)
+
+        s.responderJSON(w, http.StatusOK, RespuestaAPI{
+                Exito:     true,
+                Mensaje:   "Edición registrada",
+                Timestamp: time.Now().Format(time.RFC3339),
+        })
+}
+
+// handlerTrackerRecientes retorna las últimas ediciones de un proyecto.
+// Query params: proyecto (requerido), n (opcional, default 10).
+func (s *Servidor) handlerTrackerRecientes(w http.ResponseWriter, r *http.Request) {
+        if !s.requiereCoordinador(w) {
+                return
+        }
+
+        proyecto := r.URL.Query().Get("proyecto")
+        if proyecto == "" {
+                s.responderError(w, http.StatusBadRequest, "parámetro 'proyecto' requerido")
+                return
+        }
+
+        n := 10
+        if v := r.URL.Query().Get("n"); v != "" {
+                if parsed, err := parseIntSafe(v); err == nil && parsed > 0 {
+                        n = parsed
+                }
+        }
+
+        recientes := s.gestorCtx.ObtenerEdicionesRecientes(proyecto, n)
+        s.responderJSON(w, http.StatusOK, RespuestaAPI{
+                Exito:     true,
+                Datos:     recientes,
+                Timestamp: time.Now().Format(time.RFC3339),
+        })
+}

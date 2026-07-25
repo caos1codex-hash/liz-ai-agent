@@ -139,6 +139,17 @@ func (c *Coordinador) RegistrarEdicion(nombreProyecto, ruta string) {
         proy.Tracker.RegistrarEdicion(ruta)
 }
 
+// ObtenerEdicionesRecientes retorna las últimas N ediciones de un proyecto.
+func (c *Coordinador) ObtenerEdicionesRecientes(nombreProyecto string, n int) []string {
+        c.mu.RLock()
+        proy, ok := c.proyectos[nombreProyecto]
+        c.mu.RUnlock()
+        if !ok || proy.Tracker == nil {
+                return nil
+        }
+        return proy.Tracker.ObtenerRecientes(n)
+}
+
 // ═══════════════════════════════════════════════════════
 // GESTIÓN DE PROYECTOS
 // ═══════════════════════════════════════════════════════

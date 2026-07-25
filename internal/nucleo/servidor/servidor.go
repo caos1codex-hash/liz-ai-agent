@@ -157,6 +157,10 @@ func (s *Servidor) registrarRutas() {
         s.router.HandleFunc("/api/v1/memoria/hechos/{id}", s.handlerMemoriaEliminarHecho).Methods("DELETE", "OPTIONS")
         s.router.HandleFunc("/api/v1/memoria/contexto", s.handlerMemoriaContexto).Methods("GET", "OPTIONS")
 
+        // --- Tracker de ediciones (Fase 4) ---
+        s.router.HandleFunc("/api/v1/contexto/tracker/edicion", s.handlerTrackerRegistrarEdicion).Methods("POST", "OPTIONS")
+        s.router.HandleFunc("/api/v1/contexto/tracker/recientes", s.handlerTrackerRecientes).Methods("GET", "OPTIONS")
+
         // --- Stubs fases futuras ---
         s.router.HandleFunc("/api/v1/tools", s.handlerStub("tools")).Methods("GET", "OPTIONS")
         s.router.HandleFunc("/api/v1/modelos", s.handlerStub("modelos")).Methods("GET", "OPTIONS")
