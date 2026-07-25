@@ -331,8 +331,16 @@ func (c *Coordinador) construirGrafo(proy *ProyectoContexto, rutaAbs string, ind
                 }
         }
 
-        // Calcular PageRank
-        proy.Grafo.CalcularImportancia(50, 0.85)
+        // Calcular PageRank (usar cache si el grafo no cambió)
+        rutaCachePR := filepath.Join(proy.Ruta, ".liz", "pagerank_cache.json")
+        if !proy.Grafo.CargarPageRankCache(rutaCachePR) {
+                proy.Grafo.CalcularImportancia(50, 0.85)
+                if err := proy.Grafo.GuardarPageRankCache(rutaCachePR); err != nil {
+                        c.logFunc("advertencia: error guardando cache PageRank: %v", err)
+                }
+        } else {
+                c.logFunc("PageRank cargado desde cache")
+        }
         c.logFunc("grafo construido: %d archivos, %d aristas",
                 proy.Grafo.TotalArchivos(), proy.Grafo.TotalAristas())
 }
