@@ -650,11 +650,32 @@ func (c *Coordinador) EmpaquetarContexto(req EmpaquetarSolicitud) (*empaquetador
                 }, true
         }
 
+        // Callback para obtener fragmentos por ruta relativa (necesario para
+        // capas 3 y 4 del empaquetador: imports expandidos y archivos recientes)
+        obtenerFragmentosPorRuta := func(ruta string) []buscador.FragmentoBuscable {
+                frags, err := proy.Almacen.ObtenerPorRuta(ruta)
+                if err != nil {
+                        return nil
+                }
+                resultado := make([]buscador.FragmentoBuscable, 0, len(frags))
+                for _, f := range frags {
+                        resultado = append(resultado, buscador.FragmentoBuscable{
+                                ID:        f.ID,
+                                Ruta:      f.Ruta,
+                                Contenido: f.Contenido,
+                                Tipo:      f.Tipo,
+                                Lenguaje:  f.Lenguaje,
+                        })
+                }
+                return resultado
+        }
+
         datos := empaquetador.DatosEmpaquetado{
-                MapaRepo:          mapaRepo,
-                Buscador:          proy.Buscador,
-                Grafo:             proy.Grafo,
-                ObtenerFragmento:  obtenerFragmento,
+                MapaRepo:                 mapaRepo,
+                Buscador:                 proy.Buscador,
+                Grafo:                    proy.Grafo,
+                ObtenerFragmento:         obtenerFragmento,
+                ObtenerFragmentosPorRuta: obtenerFragmentosPorRuta,
         }
 
         solicitud := empaquetador.SolicitudEmpaquetado{
@@ -663,6 +684,10 @@ func (c *Coordinador) EmpaquetarContexto(req EmpaquetarSolicitud) (*empaquetador
                 PresupuestoTokens: req.PresupuestoTokens,
                 ArchivosRecientes: req.ArchivosRecientes,
                 ProfundidadImports: req.ProfundidadImports,
+        }
+        // Default: si el usuario no especificó profundidad, usar 1 (imports directos)
+        if solicitud.ProfundidadImports == 0 {
+                solicitud.ProfundidadImports = 1
         }
 
         return proy.Empaquetador.Empaquetar(solicitud, datos), nil

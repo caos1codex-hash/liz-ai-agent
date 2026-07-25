@@ -14,10 +14,13 @@
 //   3. Imports directos de esos fragmentos (~15% del presupuesto)
 //      - Si un fragmento usa auth.Jwt, incluir también el fragmento de jwt.go
 //      - Una profundidad de expansión (configurable, default 1)
+//      - IMPLEMENTADO: usa Grafo.Vecinos + callback ObtenerFragmentosPorRuta
 //
 //   4. Archivos recientemente editados (~5% del presupuesto, opcional)
 //      - Bias por localidad (Copilot-style)
 //      - Solo si hay presupuesto restante
+//      - IMPLEMENTADO: usa callback ObtenerFragmentosPorRuta para incluir
+//        fragmentos reales de los archivos recientes
 //
 // El packer retorna:
 //   - Un string listo para incluir en el prompt del modelo
@@ -49,25 +52,25 @@ type SolicitudEmpaquetado struct {
 
 // ContextoEmpaquetado es el resultado de empaquetar.
 type ContextoEmpaquetado struct {
-        Contenido        string         `json:"contenido"`         // string listo para prompt
-        TokensUsados     int            `json:"tokens_usados"`
-        PresupuestoTokens int           `json:"presupuesto_tokens"`
-        MapaRepoIncluido bool           `json:"mapa_repo_incluido"`
+        Contenido        string               `json:"contenido"`           // string listo para prompt
+        TokensUsados     int                  `json:"tokens_usados"`
+        PresupuestoTokens int                 `json:"presupuesto_tokens"`
+        MapaRepoIncluido bool                 `json:"mapa_repo_incluido"`
         FragmentosIncluidos []FragmentoIncluido `json:"fragmentos_incluidos"`
-        TokensMapaRepo   int            `json:"tokens_mapa_repo"`
-        TokensFragmentos int            `json:"tokens_fragmentos"`
-        TokensImports    int            `json:"tokens_imports"`
-        TokensRecientes  int            `json:"tokens_recientes"`
+        TokensMapaRepo   int                  `json:"tokens_mapa_repo"`
+        TokensFragmentos int                  `json:"tokens_fragmentos"`
+        TokensImports    int                  `json:"tokens_imports"`
+        TokensRecientes  int                  `json:"tokens_recientes"`
 }
 
 // FragmentoIncluido describe un fragmento que se incluyó en el contexto.
 type FragmentoIncluido struct {
-        ID          string  `json:"id"`
-        Ruta        string  `json:"ruta"`
-        Tipo        string  `json:"tipo"`           // "relevante", "import", "reciente"
-        Score       float64 `json:"score"`
-        LineaIni    int     `json:"linea_ini"`
-        LineaFin    int     `json:"linea_fin"`
+        ID       string  `json:"id"`
+        Ruta     string  `json:"ruta"`
+        Tipo     string  `json:"tipo"`     // "relevante", "import", "reciente"
+        Score    float64 `json:"score"`
+        LineaIni int     `json:"linea_ini"`
+        LineaFin int     `json:"linea_fin"`
 }
 
 // Empaquetador ensambla contexto para LLMs.
@@ -96,11 +99,18 @@ const (
 
 // DatosEmpaquetado es la entrada al empaquetador.
 // Quien llama debe recolectar esta información del Coordinador.
+//
+// Callbacks opcionales (si son nil, la capa correspondiente se omite):
+//   - ObtenerFragmento: lookup por ID (no usado activamente, futuro)
+//   - ObtenerFragmentosPorRuta: lookup por ruta relativa → []FragmentoBuscable
+//     (necesario para capas 3 y 4)
 type DatosEmpaquetado struct {
-        MapaRepo     *mapa_repo.MapaRepo
-        Buscador     *buscador.Buscador
-        Grafo        *grafo.Grafo
-        ObtenerFragmento func(id string) (buscador.FragmentoBuscable, bool) // callback para leer fragmentos
+        MapaRepo *mapa_repo.MapaRepo
+        Buscador *buscador.Buscador
+        Grafo    *grafo.Grafo
+        // Callbacks opcionales:
+        ObtenerFragmento        func(id string) (buscador.FragmentoBuscable, bool)
+        ObtenerFragmentosPorRuta func(ruta string) []buscador.FragmentoBuscable
 }
 
 // Empaquetar ensambla el contexto óptimo para el LLM.
@@ -109,9 +119,10 @@ func (e *Empaquetador) Empaquetar(req SolicitudEmpaquetado, datos DatosEmpaqueta
         if req.PresupuestoTokens <= 0 {
                 req.PresupuestoTokens = 8000
         }
-        if req.ProfundidadImports <= 0 {
-                req.ProfundidadImports = 1
-        }
+        // ProfundidadImports:
+        //   0  = no expansion (capa 3 omitida)
+        //   >0 = expandir a esa profundidad (1 = imports directos, 2 = transitivo)
+        // El coordinador aplica el default de 1 si el usuario no especifica.
 
         resultado := &ContextoEmpaquetado{
                 PresupuestoTokens: req.PresupuestoTokens,
@@ -149,6 +160,7 @@ func (e *Empaquetador) Empaquetar(req SolicitudEmpaquetado, datos DatosEmpaqueta
         // Capa 2: Fragmentos relevantes (BM25 + RRF)
         // ═══════════════════════════════════════════════════════
         fragmentosYaIncluidos := make(map[string]bool) // ID → true
+        archivosIncluidos := make(map[string]bool)     // ruta → true (para capa 3)
 
         if datos.Buscador != nil && req.Query != "" {
                 // Calcular topK basado en presupuesto (asumir ~500 tokens por fragmento)
@@ -182,41 +194,95 @@ func (e *Empaquetador) Empaquetar(req SolicitudEmpaquetado, datos DatosEmpaqueta
                                 Score: r.Score,
                         })
                         fragmentosYaIncluidos[r.Fragmento.ID] = true
+                        archivosIncluidos[r.Fragmento.Ruta] = true
                         tokensFragmentosUsados += tokensFrag
                 }
                 resultado.TokensFragmentos = tokensFragmentosUsados
         }
 
         // ═══════════════════════════════════════════════════════
-        // Capa 3: Imports expandidos (un nivel de profundidad)
+        // Capa 3: Imports expandidos (N niveles de profundidad)
         // ═══════════════════════════════════════════════════════
-        if datos.Grafo != nil && datos.ObtenerFragmento != nil && req.ProfundidadImports > 0 {
+        //
+        // Implementación real: para cada archivo ya incluido como fragmento
+        // relevante, consultar el grafo por sus vecinos (imports directos),
+        // y para cada vecino traer sus fragmentos via callback.
+        // Se respeta la profundidad configurada (BFS).
+        if datos.Grafo != nil && datos.ObtenerFragmentosPorRuta != nil && req.ProfundidadImports > 0 {
                 b.WriteString("\n# Dependencias directas\n\n")
 
                 tokensImportsUsados := 0
-                // Para cada archivo ya incluido, buscar sus imports
-                archivosIncluidos := make(map[string]bool)
-                for _, f := range resultado.FragmentosIncluidos {
-                        archivosIncluidos[f.Ruta] = true
+
+                // BFS: nivel 0 = archivos incluidos como relevantes
+                // nivel 1..N = vecinos (imports) de cada nivel anterior
+                nivelActual := make([]string, 0, len(archivosIncluidos))
+                for ruta := range archivosIncluidos {
+                        nivelActual = append(nivelActual, ruta)
                 }
 
-                // Expandir imports
-                // Buscar fragmentos de los archivos importados
-                // (limitado por presupuestoImports)
-                for ruta := range archivosIncluidos {
+                visitados := make(map[string]bool)
+                for _, r := range nivelActual {
+                        visitados[r] = true
+                }
+
+                for profundidad := 0; profundidad < req.ProfundidadImports; profundidad++ {
                         if tokensImportsUsados >= presupuestoImports {
                                 break
                         }
-                        vecinos := datos.Grafo.Vecinos(ruta)
-                        for _, vecino := range vecinos {
+                        if len(nivelActual) == 0 {
+                                break
+                        }
+
+                        siguienteNivel := make([]string, 0)
+
+                        for _, ruta := range nivelActual {
                                 if tokensImportsUsados >= presupuestoImports {
                                         break
                                 }
-                                // Tomar el primer fragmento del archivo vecino
-                                // (en una implementación real, usaríamos el almacén para listar)
-                                // Por simplicidad, omitimos la expansión real aquí
-                                _ = vecino
+
+                                vecinos := datos.Grafo.Vecinos(ruta)
+                                for _, vecino := range vecinos {
+                                        if tokensImportsUsados >= presupuestoImports {
+                                                break
+                                        }
+                                        if visitados[vecino] {
+                                                continue
+                                        }
+                                        visitados[vecino] = true
+                                        siguienteNivel = append(siguienteNivel, vecino)
+
+                                        // Traer los fragmentos de este archivo vecino
+                                        frags := datos.ObtenerFragmentosPorRuta(vecino)
+                                        for _, f := range frags {
+                                                if tokensImportsUsados >= presupuestoImports {
+                                                        break
+                                                }
+                                                if fragmentosYaIncluidos[f.ID] {
+                                                        continue
+                                                }
+
+                                                fragTexto := fmt.Sprintf("## %s (dependencia de %s)\n```%s\n%s\n```\n\n",
+                                                        f.Ruta, ruta, f.Lenguaje, f.Contenido)
+                                                tokensFrag := mapa_repo.EstimarTokensTexto(fragTexto)
+
+                                                if tokensImportsUsados+tokensFrag > presupuestoImports {
+                                                        break
+                                                }
+
+                                                b.WriteString(fragTexto)
+                                                resultado.FragmentosIncluidos = append(resultado.FragmentosIncluidos, FragmentoIncluido{
+                                                        ID:    f.ID,
+                                                        Ruta:  f.Ruta,
+                                                        Tipo:  "import",
+                                                        Score: 0, // los imports no tienen score de búsqueda
+                                                })
+                                                fragmentosYaIncluidos[f.ID] = true
+                                                tokensImportsUsados += tokensFrag
+                                        }
+                                }
                         }
+
+                        nivelActual = siguienteNivel
                 }
                 resultado.TokensImports = tokensImportsUsados
         }
@@ -224,7 +290,10 @@ func (e *Empaquetador) Empaquetar(req SolicitudEmpaquetado, datos DatosEmpaqueta
         // ═══════════════════════════════════════════════════════
         // Capa 4: Archivos recientes (locality bias)
         // ═══════════════════════════════════════════════════════
-        if len(req.ArchivosRecientes) > 0 && datos.ObtenerFragmento != nil {
+        //
+        // Implementación real: para cada ruta en ArchivosRecientes,
+        // traer sus fragmentos via callback e incluirlos.
+        if len(req.ArchivosRecientes) > 0 && datos.ObtenerFragmentosPorRuta != nil {
                 b.WriteString("\n# Archivos recientemente editados\n\n")
 
                 tokensRecientesUsados := 0
@@ -232,15 +301,58 @@ func (e *Empaquetador) Empaquetar(req SolicitudEmpaquetado, datos DatosEmpaqueta
                         if tokensRecientesUsados >= presupuestoRecientes {
                                 break
                         }
-                        // En una implementación real, buscaríamos los fragmentos de esta ruta
-                        // en el almacén. Por simplicidad, solo mencionamos la ruta.
-                        entrada := fmt.Sprintf("- `%s`\n", ruta)
-                        tokensEntrada := mapa_repo.EstimarTokensTexto(entrada)
-                        if tokensRecientesUsados+tokensEntrada > presupuestoRecientes {
-                                break
+
+                        frags := datos.ObtenerFragmentosPorRuta(ruta)
+                        if len(frags) == 0 {
+                                // Si no hay fragmentos, al menos mencionar la ruta
+                                entrada := fmt.Sprintf("- `%s` (sin fragmentos indexados)\n", ruta)
+                                tokensEntrada := mapa_repo.EstimarTokensTexto(entrada)
+                                if tokensRecientesUsados+tokensEntrada > presupuestoRecientes {
+                                        break
+                                }
+                                b.WriteString(entrada)
+                                tokensRecientesUsados += tokensEntrada
+                                continue
                         }
-                        b.WriteString(entrada)
-                        tokensRecientesUsados += tokensEntrada
+
+                        escribioAlguno := false
+                        for _, f := range frags {
+                                if tokensRecientesUsados >= presupuestoRecientes {
+                                        break
+                                }
+                                if fragmentosYaIncluidos[f.ID] {
+                                        continue
+                                }
+
+                                fragTexto := fmt.Sprintf("## %s (editado recientemente)\n```%s\n%s\n```\n\n",
+                                        f.Ruta, f.Lenguaje, f.Contenido)
+                                tokensFrag := mapa_repo.EstimarTokensTexto(fragTexto)
+
+                                if tokensRecientesUsados+tokensFrag > presupuestoRecientes {
+                                        break
+                                }
+
+                                b.WriteString(fragTexto)
+                                resultado.FragmentosIncluidos = append(resultado.FragmentosIncluidos, FragmentoIncluido{
+                                        ID:    f.ID,
+                                        Ruta:  f.Ruta,
+                                        Tipo:  "reciente",
+                                        Score: 0,
+                                })
+                                fragmentosYaIncluidos[f.ID] = true
+                                tokensRecientesUsados += tokensFrag
+                                escribioAlguno = true
+                        }
+
+                        if !escribioAlguno && len(frags) > 0 {
+                                // Todos los fragmentos ya estaban incluidos; mencionar la ruta
+                                entrada := fmt.Sprintf("- `%s` (ya incluido arriba)\n", ruta)
+                                tokensEntrada := mapa_repo.EstimarTokensTexto(entrada)
+                                if tokensRecientesUsados+tokensEntrada <= presupuestoRecientes {
+                                        b.WriteString(entrada)
+                                        tokensRecientesUsados += tokensEntrada
+                                }
+                        }
                 }
                 resultado.TokensRecientes = tokensRecientesUsados
         }
