@@ -8,6 +8,7 @@ import (
         "os"
         "os/signal"
         "path/filepath"
+        "strconv"
         "syscall"
         "time"
 
@@ -125,6 +126,14 @@ func (s *Servidor) registrarRutas() {
         s.router.HandleFunc("/api/v1/contexto/proyectos/{nombre}/buscar", s.handlerContextoBuscar).Methods("GET", "OPTIONS")
         s.router.HandleFunc("/api/v1/contexto/proyectos/{nombre}/resumen", s.handlerContextoResumen).Methods("GET", "OPTIONS")
         s.router.HandleFunc("/api/v1/contexto/proyectos/{nombre}/reindexar", s.handlerContextoReindexar).Methods("POST", "OPTIONS")
+
+        // --- Contexto Fase 3.5 (sistema world-class) ---
+        s.router.HandleFunc("/api/v1/contexto/proyectos/{nombre}/simbolos", s.handlerContextoSimbolos).Methods("GET", "OPTIONS")
+        s.router.HandleFunc("/api/v1/contexto/proyectos/{nombre}/grafo", s.handlerContextoGrafo).Methods("GET", "OPTIONS")
+        s.router.HandleFunc("/api/v1/contexto/proyectos/{nombre}/importancia", s.handlerContextoImportancia).Methods("GET", "OPTIONS")
+        s.router.HandleFunc("/api/v1/contexto/proyectos/{nombre}/buscar-hibrido", s.handlerContextoBuscarHibrido).Methods("POST", "OPTIONS")
+        s.router.HandleFunc("/api/v1/contexto/proyectos/{nombre}/mapa-repo", s.handlerContextoMapaRepo).Methods("GET", "OPTIONS")
+        s.router.HandleFunc("/api/v1/contexto/proyectos/{nombre}/empaquetar", s.handlerContextoEmpaquetar).Methods("POST", "OPTIONS")
 
         // --- Stubs Fase 4+ (sin implementar) ---
         s.router.HandleFunc("/api/v1/tools", s.handlerStub("tools")).Methods("GET", "OPTIONS")
@@ -885,4 +894,199 @@ func (s *Servidor) parsearBody(r *http.Request, dst interface{}) error {
                 return nil
         }
         return json.NewDecoder(r.Body).Decode(dst)
+}
+
+// ============================================================================
+// Handlers — Contexto Fase 3.5 (sistema world-class)
+// ============================================================================
+
+// handlerContextoSimbolos — GET /api/v1/contexto/proyectos/{nombre}/simbolos?ruta=X
+// Retorna los símbolos AST parseados de un archivo Go.
+func (s *Servidor) handlerContextoSimbolos(w http.ResponseWriter, r *http.Request) {
+        if !s.requiereCoordinador(w) {
+                return
+        }
+
+        nombre := mux.Vars(r)["nombre"]
+        ruta := r.URL.Query().Get("ruta")
+        if ruta == "" {
+                s.responderError(w, http.StatusBadRequest, "parámetro 'ruta' es requerido")
+                return
+        }
+
+        ast, err := s.gestorCtx.ObtenerSimbolos(nombre, ruta)
+        if err != nil {
+                s.responderError(w, http.StatusNotFound, err.Error())
+                return
+        }
+
+        s.responderJSON(w, http.StatusOK, RespuestaAPI{
+                Exito:     true,
+                Datos:     ast,
+                Timestamp: time.Now().Format(time.RFC3339),
+        })
+}
+
+// handlerContextoGrafo — GET /api/v1/contexto/proyectos/{nombre}/grafo
+// Retorna el grafo de dependencias con PageRank scores.
+func (s *Servidor) handlerContextoGrafo(w http.ResponseWriter, r *http.Request) {
+        if !s.requiereCoordinador(w) {
+                return
+        }
+
+        nombre := mux.Vars(r)["nombre"]
+        g, err := s.gestorCtx.ObtenerGrafo(nombre)
+        if err != nil {
+                s.responderError(w, http.StatusNotFound, err.Error())
+                return
+        }
+
+        nodos := g.ObtenerTodos()
+        estadisticas := g.Estadisticas()
+
+        s.responderJSON(w, http.StatusOK, RespuestaAPI{
+                Exito: true,
+                Datos: map[string]interface{}{
+                        "nodos":       nodos,
+                        "estadisticas": estadisticas,
+                },
+                Timestamp: time.Now().Format(time.RFC3339),
+        })
+}
+
+// handlerContextoImportancia — GET /api/v1/contexto/proyectos/{nombre}/importancia
+// Retorna el mapa ruta → score PageRank.
+func (s *Servidor) handlerContextoImportancia(w http.ResponseWriter, r *http.Request) {
+        if !s.requiereCoordinador(w) {
+                return
+        }
+
+        nombre := mux.Vars(r)["nombre"]
+        importancias, err := s.gestorCtx.ObtenerImportancias(nombre)
+        if err != nil {
+                s.responderError(w, http.StatusNotFound, err.Error())
+                return
+        }
+
+        s.responderJSON(w, http.StatusOK, RespuestaAPI{
+                Exito:     true,
+                Datos:     importancias,
+                Timestamp: time.Now().Format(time.RFC3339),
+        })
+}
+
+// SolicitudBuscarHibrido es el body para POST /buscar-hibrido.
+type SolicitudBuscarHibrido struct {
+        Query string `json:"query"`
+        TopK  int    `json:"top_k"`
+}
+
+// handlerContextoBuscarHibrido — POST /api/v1/contexto/proyectos/{nombre}/buscar-hibrido
+// Búsqueda híbrida BM25 + RRF sobre fragmentos.
+func (s *Servidor) handlerContextoBuscarHibrido(w http.ResponseWriter, r *http.Request) {
+        if !s.requiereCoordinador(w) {
+                return
+        }
+
+        nombre := mux.Vars(r)["nombre"]
+
+        var req SolicitudBuscarHibrido
+        if err := s.parsearBody(r, &req); err != nil {
+                s.responderError(w, http.StatusBadRequest, "body inválido: "+err.Error())
+                return
+        }
+        if req.Query == "" {
+                s.responderError(w, http.StatusBadRequest, "campo 'query' es requerido")
+                return
+        }
+
+        resultados, err := s.gestorCtx.BuscarHibrido(nombre, req.Query, req.TopK)
+        if err != nil {
+                s.responderError(w, http.StatusNotFound, err.Error())
+                return
+        }
+
+        s.responderJSON(w, http.StatusOK, RespuestaAPI{
+                Exito:     true,
+                Datos:     resultados,
+                Timestamp: time.Now().Format(time.RFC3339),
+        })
+}
+
+// handlerContextoMapaRepo — GET /api/v1/contexto/proyectos/{nombre}/mapa-repo?max_tokens=X
+// Retorna el repository map compacto (Aider-style).
+func (s *Servidor) handlerContextoMapaRepo(w http.ResponseWriter, r *http.Request) {
+        if !s.requiereCoordinador(w) {
+                return
+        }
+
+        nombre := mux.Vars(r)["nombre"]
+        maxTokens := 2000
+        if v := r.URL.Query().Get("max_tokens"); v != "" {
+                if n, err := strconv.Atoi(v); err == nil && n > 0 {
+                        maxTokens = n
+                }
+        }
+
+        mapa, err := s.gestorCtx.ObtenerMapaRepo(nombre, maxTokens)
+        if err != nil {
+                s.responderError(w, http.StatusNotFound, err.Error())
+                return
+        }
+
+        // Si se pide formato texto, retornar text/plain
+        if r.URL.Query().Get("formato") == "texto" {
+                w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+                w.WriteHeader(http.StatusOK)
+                w.Write([]byte(mapa.FormatoTexto()))
+                return
+        }
+
+        s.responderJSON(w, http.StatusOK, RespuestaAPI{
+                Exito:     true,
+                Datos:     mapa,
+                Timestamp: time.Now().Format(time.RFC3339),
+        })
+}
+
+// handlerContextoEmpaquetar — POST /api/v1/contexto/proyectos/{nombre}/empaquetar
+// Ensambla el contexto óptimo para un LLM.
+// Body: {"query": "...", "presupuesto_tokens": 8000, "archivos_recientes": [...], "profundidad_imports": 1}
+func (s *Servidor) handlerContextoEmpaquetar(w http.ResponseWriter, r *http.Request) {
+        if !s.requiereCoordinador(w) {
+                return
+        }
+
+        nombre := mux.Vars(r)["nombre"]
+
+        var req struct {
+                Query              string   `json:"query"`
+                PresupuestoTokens  int      `json:"presupuesto_tokens"`
+                ArchivosRecientes  []string `json:"archivos_recientes"`
+                ProfundidadImports int      `json:"profundidad_imports"`
+        }
+        if err := s.parsearBody(r, &req); err != nil {
+                s.responderError(w, http.StatusBadRequest, "body inválido: "+err.Error())
+                return
+        }
+
+        solicitud := contexto.EmpaquetarSolicitud{
+                Proyecto:           nombre,
+                Query:              req.Query,
+                PresupuestoTokens:  req.PresupuestoTokens,
+                ArchivosRecientes:  req.ArchivosRecientes,
+                ProfundidadImports: req.ProfundidadImports,
+        }
+
+        resultado, err := s.gestorCtx.EmpaquetarContexto(solicitud)
+        if err != nil {
+                s.responderError(w, http.StatusNotFound, err.Error())
+                return
+        }
+
+        s.responderJSON(w, http.StatusOK, RespuestaAPI{
+                Exito:     true,
+                Datos:     resultado,
+                Timestamp: time.Now().Format(time.RFC3339),
+        })
 }

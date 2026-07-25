@@ -10,9 +10,14 @@ import (
         "sync"
         "time"
 
+        "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto/arbol_ast"
+        "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto/buscador"
+        "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto/empaquetador"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto/fragmentos"
+        "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto/grafo"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto/indice"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto/mapa"
+        "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto/mapa_repo"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto/resumen"
 )
 
@@ -44,22 +49,31 @@ type SolicitudFragmento struct {
 }
 
 // Coordinador es el punto de entrada del sistema de contexto.
-// Coordina mapa, fragmentos, índice y resúmenes.
+// Coordina mapa, fragmentos, índice, resúmenes, grafo, buscador,
+// repository map y empaquetador (Fase 3.5: sistema world-class).
 type Coordinador struct {
-        mu           sync.RWMutex
-        dirBase      string            // ~/.liz/contexto/proyectos/
-        proyectos    map[string]*ProyectoContexto // nombre → proyecto
-        logFunc      func(string, ...interface{})
+        mu        sync.RWMutex
+        dirBase   string                   // ~/.liz/contexto/proyectos/
+        proyectos map[string]*ProyectoContexto // nombre → proyecto
+        logFunc   func(string, ...interface{})
 }
 
 // ProyectoContexto agrupa los componentes de contexto para un proyecto.
+// En Fase 3.5 se añaden: Grafo, Buscador, GenMapaRepo, Empaquetador.
 type ProyectoContexto struct {
-        Nombre     string
-        Ruta       string // ruta absoluta al proyecto
-        GenMapa    *mapa.Generador
-        Almacen    *fragmentos.Almacen
-        Indice     *indice.GestorIndice
-        GenResumen *resumen.Generador
+        Nombre       string
+        Ruta         string // ruta absoluta al proyecto
+        Modulo       string // módulo Go del proyecto (ej. "github.com/foo/bar")
+        GenMapa      *mapa.Generador
+        Almacen      *fragmentos.Almacen
+        Indice       *indice.GestorIndice
+        GenResumen   *resumen.Generador
+        // Nuevos componentes Fase 3.5:
+        Parser       *arbol_ast.Parser
+        Grafo        *grafo.Grafo
+        Buscador     *buscador.Buscador
+        GenMapaRepo  *mapa_repo.Generador
+        Empaquetador *empaquetador.Empaquetador
 }
 
 // NuevoCoordinador crea un nuevo coordinador de contexto.
@@ -196,6 +210,12 @@ func (c *Coordinador) IndexarProyecto(rutaProyecto string) (*EstadoProyecto, err
         // 6. Actualizar índice global
         indiceGlobal := proy.Indice.Obtener()
 
+        // 7. Construir grafo de dependencias y calcular PageRank (Fase 3.5)
+        c.construirGrafo(proy, rutaAbs, indiceGlobal)
+
+        // 8. Indexar fragmentos en el buscador BM25 (Fase 3.5)
+        c.indexarBuscador(proy)
+
         estado := &EstadoProyecto{
                 Nombre:           nombre,
                 Ruta:             rutaAbs,
@@ -209,10 +229,93 @@ func (c *Coordinador) IndexarProyecto(rutaProyecto string) (*EstadoProyecto, err
         // Guardar estado del proyecto
         c.guardarEstadoProyecto(nombre, estado)
 
-        c.logFunc("proyecto indexado: %s (%d archivos, %d fragmentos)",
-                nombre, estado.TotalArchivos, estado.TotalFragmentos)
+        c.logFunc("proyecto indexado: %s (%d archivos, %d fragmentos, grafo: %d nodos, buscador: %d fragmentos)",
+                nombre, estado.TotalArchivos, estado.TotalFragmentos,
+                proy.Grafo.TotalArchivos(), proy.Buscador.Total())
 
         return estado, nil
+}
+
+// construirGrafo construye el grafo de dependencias del proyecto.
+// Para cada archivo .go, parsea los imports y resuelve cuáles son internos
+// al proyecto (mismo módulo Go). Luego calcula PageRank.
+func (c *Coordinador) construirGrafo(proy *ProyectoContexto, rutaAbs string, ind *indice.IndiceProyecto) {
+        // Limpiar grafo existente
+        proy.Grafo = grafo.NuevoGrafo()
+
+        // Agregar archivos al grafo
+        for ruta, entrada := range ind.Archivos {
+                proy.Grafo.AgregarArchivo(ruta, entrada.Lenguaje, entrada.Lineas)
+        }
+
+        // Para archivos Go, parsear imports y resolver dependencias
+        for ruta, entrada := range ind.Archivos {
+                if entrada.Lenguaje != "go" {
+                        continue
+                }
+                rutaCompleta := filepath.Join(rutaAbs, ruta)
+                ast, err := proy.Parser.Parsear(ruta, rutaCompleta)
+                if err != nil || ast == nil {
+                        continue
+                }
+
+                // Para cada import, resolver si es interno al proyecto
+                for _, imp := range ast.Imports {
+                        if proy.Modulo == "" {
+                                continue
+                        }
+                        // Si el import empieza con el módulo del proyecto, es interno
+                        if !strings.HasPrefix(imp, proy.Modulo) {
+                                continue
+                        }
+                        // Resolver el import a una ruta de directorio dentro del proyecto
+                        rutaDir := strings.TrimPrefix(imp, proy.Modulo)
+                        rutaDir = strings.TrimPrefix(rutaDir, "/")
+                        if rutaDir == "" {
+                                continue
+                        }
+                        // Encontrar todos los archivos indexados en ese directorio
+                        for otraRuta := range ind.Archivos {
+                                if strings.HasPrefix(otraRuta, rutaDir+"/") {
+                                        proy.Grafo.AgregarImport(ruta, otraRuta)
+                                }
+                        }
+                }
+        }
+
+        // Calcular PageRank
+        proy.Grafo.CalcularImportancia(50, 0.85)
+        c.logFunc("grafo construido: %d archivos, %d aristas",
+                proy.Grafo.TotalArchivos(), proy.Grafo.TotalAristas())
+}
+
+// indexarBuscador indexa todos los fragmentos en el buscador BM25.
+// Si el buscador ya tenía datos, se limpia y se re-indexa desde cero.
+func (c *Coordinador) indexarBuscador(proy *ProyectoContexto) {
+        // Crear nuevo buscador (limpio)
+        proy.Buscador = buscador.NuevoBuscador()
+
+        // Listar todos los fragmentos del almacén (metadata solo)
+        frags, err := proy.Almacen.Listar()
+        if err != nil {
+                c.logFunc("advertencia: error listando fragmentos para buscador: %v", err)
+                return
+        }
+
+        for _, f := range frags {
+                // Obtener fragmento completo (con contenido) por ID
+                fragCompleto, err := proy.Almacen.Obtener(f.ID)
+                if err != nil || fragCompleto == nil {
+                        continue
+                }
+                proy.Buscador.Indexar(buscador.FragmentoBuscable{
+                        ID:        fragCompleto.ID,
+                        Ruta:      fragCompleto.Ruta,
+                        Contenido: fragCompleto.Contenido,
+                        Tipo:      fragCompleto.Tipo,
+                        Lenguaje:  fragCompleto.Lenguaje,
+                })
+        }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -425,6 +528,156 @@ func (c *Coordinador) ReindexarArchivo(nombreProyecto, rutaRelativa string) erro
 }
 
 // ═══════════════════════════════════════════════════════
+// MÉTODOS FASE 3.5 (sistema world-class)
+// ═══════════════════════════════════════════════════════
+
+// ObtenerSimbolos retorna los símbolos parseados por AST de un archivo.
+// Solo funciona con Go (otros lenguajes retornan AST vacío).
+func (c *Coordinador) ObtenerSimbolos(nombreProyecto, rutaRelativa string) (*arbol_ast.ArchivoAST, error) {
+        c.mu.RLock()
+        proy, existe := c.proyectos[nombreProyecto]
+        c.mu.RUnlock()
+
+        if !existe {
+                return nil, fmt.Errorf("proyecto %s no indexado", nombreProyecto)
+        }
+
+        rutaAbsoluta := filepath.Join(proy.Ruta, rutaRelativa)
+        return proy.Parser.Parsear(rutaRelativa, rutaAbsoluta)
+}
+
+// ObtenerGrafo retorna el grafo de dependencias de un proyecto.
+func (c *Coordinador) ObtenerGrafo(nombreProyecto string) (*grafo.Grafo, error) {
+        c.mu.RLock()
+        proy, existe := c.proyectos[nombreProyecto]
+        c.mu.RUnlock()
+
+        if !existe {
+                return nil, fmt.Errorf("proyecto %s no indexado", nombreProyecto)
+        }
+        return proy.Grafo, nil
+}
+
+// ObtenerImportancias retorna un mapa ruta → score PageRank de un proyecto.
+func (c *Coordinador) ObtenerImportancias(nombreProyecto string) (map[string]float64, error) {
+        c.mu.RLock()
+        proy, existe := c.proyectos[nombreProyecto]
+        c.mu.RUnlock()
+
+        if !existe {
+                return nil, fmt.Errorf("proyecto %s no indexado", nombreProyecto)
+        }
+        return proy.Grafo.ImportanciasDe(), nil
+}
+
+// BuscarHibrido busca fragmentos por query usando BM25 + RRF.
+// Retorna hasta topK resultados ordenados por score descendente.
+func (c *Coordinador) BuscarHibrido(nombreProyecto, query string, topK int) ([]buscador.ResultadoBusqueda, error) {
+        c.mu.RLock()
+        proy, existe := c.proyectos[nombreProyecto]
+        c.mu.RUnlock()
+
+        if !existe {
+                return nil, fmt.Errorf("proyecto %s no indexado", nombreProyecto)
+        }
+        if topK <= 0 {
+                topK = 10
+        }
+        return proy.Buscador.BuscarHibrido(query, topK), nil
+}
+
+// ObtenerMapaRepo genera el repository map compacto (Aider-style).
+// Solo incluye firmas de símbolos, ordenadas por importancia PageRank,
+// limitado por presupuesto de tokens.
+func (c *Coordinador) ObtenerMapaRepo(nombreProyecto string, presupuestoTokens int) (*mapa_repo.MapaRepo, error) {
+        c.mu.RLock()
+        proy, existe := c.proyectos[nombreProyecto]
+        c.mu.RUnlock()
+
+        if !existe {
+                return nil, fmt.Errorf("proyecto %s no indexado", nombreProyecto)
+        }
+
+        if presupuestoTokens <= 0 {
+                presupuestoTokens = 2000
+        }
+
+        // Construir lista de archivos con su ruta absoluta y score de importancia
+        indice := proy.Indice.Obtener()
+        rutasAbsolutas := make(map[string]string)
+        for ruta := range indice.Archivos {
+                rutasAbsolutas[ruta] = filepath.Join(proy.Ruta, ruta)
+        }
+
+        // Convertir nodos del grafo a ArchivoParaMapa
+        archivos := mapa_repo.ArchivosDesdeGrafo(proy.Grafo, rutasAbsolutas)
+
+        return proy.GenMapaRepo.Generar(nombreProyecto, archivos, presupuestoTokens), nil
+}
+
+// EmpaquetarContexto ensambla el contexto óptimo para un LLM.
+// Es el método principal del sistema world-class: combina mapa repo +
+// fragmentos relevantes + imports + archivos recientes en un solo string.
+func (c *Coordinador) EmpaquetarContexto(req EmpaquetarSolicitud) (*empaquetador.ContextoEmpaquetado, error) {
+        c.mu.RLock()
+        proy, existe := c.proyectos[req.Proyecto]
+        c.mu.RUnlock()
+
+        if !existe {
+                return nil, fmt.Errorf("proyecto %s no indexado", req.Proyecto)
+        }
+
+        // Generar mapa repo para el presupuesto adecuado (30% del total)
+        presupuestoMapa := req.PresupuestoTokens * 30 / 100
+        mapaRepo, err := c.ObtenerMapaRepo(req.Proyecto, presupuestoMapa)
+        // Si falla, continuar sin mapa repo
+        if err != nil || mapaRepo == nil {
+                mapaRepo = &mapa_repo.MapaRepo{Proyecto: req.Proyecto}
+        }
+
+        // Callback para obtener fragmentos por ID
+        obtenerFragmento := func(id string) (buscador.FragmentoBuscable, bool) {
+                frag, err := proy.Almacen.Obtener(id)
+                if err != nil || frag == nil {
+                        return buscador.FragmentoBuscable{}, false
+                }
+                return buscador.FragmentoBuscable{
+                        ID:        frag.ID,
+                        Ruta:      frag.Ruta,
+                        Contenido: frag.Contenido,
+                        Tipo:      frag.Tipo,
+                        Lenguaje:  frag.Lenguaje,
+                }, true
+        }
+
+        datos := empaquetador.DatosEmpaquetado{
+                MapaRepo:          mapaRepo,
+                Buscador:          proy.Buscador,
+                Grafo:             proy.Grafo,
+                ObtenerFragmento:  obtenerFragmento,
+        }
+
+        solicitud := empaquetador.SolicitudEmpaquetado{
+                Proyecto:          req.Proyecto,
+                Query:             req.Query,
+                PresupuestoTokens: req.PresupuestoTokens,
+                ArchivosRecientes: req.ArchivosRecientes,
+                ProfundidadImports: req.ProfundidadImports,
+        }
+
+        return proy.Empaquetador.Empaquetar(solicitud, datos), nil
+}
+
+// EmpaquetarSolicitud es el body para EmpaquetarContexto.
+type EmpaquetarSolicitud struct {
+        Proyecto           string   `json:"proyecto"`
+        Query              string   `json:"query"`
+        PresupuestoTokens  int      `json:"presupuesto_tokens"`
+        ArchivosRecientes  []string `json:"archivos_recientes"`
+        ProfundidadImports int      `json:"profundidad_imports"`
+}
+
+// ═══════════════════════════════════════════════════════
 // PROYECTOS INTERNOS
 // ═══════════════════════════════════════════════════════
 
@@ -450,17 +703,46 @@ func (c *Coordinador) obtenerOCrearProyecto(nombre, ruta string) (*ProyectoConte
         // Crear generador de resúmenes con directorio de persistencia
         dirResumenes := filepath.Join(c.dirBase, nombre, ".liz", "resumenes")
 
+        // Detectar módulo Go del proyecto (para resolver imports internos)
+        modulo := detectarModuloGo(ruta)
+
         proy := &ProyectoContexto{
-                Nombre:     nombre,
-                Ruta:       ruta,
-                GenMapa:    mapa.NuevoGenerador().ConLog(c.logFunc),
-                Almacen:    almacen.ConLog(c.logFunc),
-                Indice:     gestorIndice.ConLog(c.logFunc),
-                GenResumen: resumen.NuevoGenerador().ConLog(c.logFunc).ConDirResumen(dirResumenes),
+                Nombre:       nombre,
+                Ruta:         ruta,
+                Modulo:       modulo,
+                GenMapa:      mapa.NuevoGenerador().ConLog(c.logFunc),
+                Almacen:      almacen.ConLog(c.logFunc),
+                Indice:       gestorIndice.ConLog(c.logFunc),
+                GenResumen:   resumen.NuevoGenerador().ConLog(c.logFunc).ConDirResumen(dirResumenes),
+                // Nuevos componentes Fase 3.5:
+                Parser:       arbol_ast.NuevoParser(),
+                Grafo:        grafo.NuevoGrafo(),
+                Buscador:     buscador.NuevoBuscador(),
+                GenMapaRepo:  mapa_repo.NuevoGenerador(),
+                Empaquetador: empaquetador.NuevoEmpaquetador(),
         }
 
         c.proyectos[nombre] = proy
         return proy, nil
+}
+
+// detectarModuloGo lee go.mod del proyecto y retorna el nombre del módulo.
+// Si no es un proyecto Go o no hay go.mod, retorna string vacío.
+func detectarModuloGo(rutaProyecto string) string {
+        rutaGoMod := filepath.Join(rutaProyecto, "go.mod")
+        datos, err := os.ReadFile(rutaGoMod)
+        if err != nil {
+                return ""
+        }
+        // Primera línea: "module github.com/foo/bar"
+        lineas := strings.Split(string(datos), "\n")
+        for _, linea := range lineas {
+                linea = strings.TrimSpace(linea)
+                if strings.HasPrefix(linea, "module ") {
+                        return strings.TrimSpace(strings.TrimPrefix(linea, "module "))
+                }
+        }
+        return ""
 }
 
 // cargarProyectos carga los proyectos ya indexados desde el filesystem.
@@ -501,13 +783,22 @@ func (c *Coordinador) cargarProyectos() {
 
                 dirResumenes := filepath.Join(c.dirBase, nombre, ".liz", "resumenes")
 
+                modulo := detectarModuloGo(estado.Ruta)
+
                 c.proyectos[nombre] = &ProyectoContexto{
-                        Nombre:     nombre,
-                        Ruta:       estado.Ruta,
-                        GenMapa:    mapa.NuevoGenerador().ConLog(c.logFunc),
-                        Almacen:    almacen.ConLog(c.logFunc),
-                        Indice:     gestorIndice.ConLog(c.logFunc),
-                        GenResumen: resumen.NuevoGenerador().ConLog(c.logFunc).ConDirResumen(dirResumenes),
+                        Nombre:       nombre,
+                        Ruta:         estado.Ruta,
+                        Modulo:       modulo,
+                        GenMapa:      mapa.NuevoGenerador().ConLog(c.logFunc),
+                        Almacen:      almacen.ConLog(c.logFunc),
+                        Indice:       gestorIndice.ConLog(c.logFunc),
+                        GenResumen:   resumen.NuevoGenerador().ConLog(c.logFunc).ConDirResumen(dirResumenes),
+                        // Nuevos componentes Fase 3.5:
+                        Parser:       arbol_ast.NuevoParser(),
+                        Grafo:        grafo.NuevoGrafo(),
+                        Buscador:     buscador.NuevoBuscador(),
+                        GenMapaRepo:  mapa_repo.NuevoGenerador(),
+                        Empaquetador: empaquetador.NuevoEmpaquetador(),
                 }
 
                 c.logFunc("proyecto cargado desde caché: %s", nombre)
