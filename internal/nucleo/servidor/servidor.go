@@ -20,6 +20,7 @@ import (
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/memoria"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/orquestador"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/permisos"
+        "github.com/caos1codex-hash/liz-ai-agent/internal/pipeline"
         "github.com/gorilla/mux"
 )
 
@@ -64,6 +65,7 @@ type Servidor struct {
         orquestador *orquestador.Orquestador // opcional, se inyecta en Fase 4
         catalogo    *registro.Catalogo       // opcional, se inyecta en Fase 5 (herramientas)
         autoGestor  *auto_creacion.Gestor    // opcional, se inyecta en Fase 6 (auto-creación)
+        pipelineMgr *pipeline.Pipeline       // opcional, se inyecta en Fase 7 (pipeline de chat)
         log         *logger.Logger
         inicio      time.Time
 }
@@ -171,10 +173,12 @@ func (s *Servidor) registrarRutas() {
         // --- Auto-creación de herramientas (Fase 6) ---
         s.registrarRutasFase6()
 
+        // --- Pipeline de Chat (Fase 7) ---
+        s.registrarRutasFase7()
+
         // --- Stubs fases futuras ---
         s.router.HandleFunc("/api/v1/modelos", s.handlerStub("modelos")).Methods("GET", "OPTIONS")
         s.router.HandleFunc("/api/v1/conversations", s.handlerStub("conversations")).Methods("GET", "OPTIONS")
-        s.router.HandleFunc("/api/v1/chat", s.handlerStub("chat")).Methods("POST", "OPTIONS")
 }
 
 // ConCoordinador inyecta el coordinador de contexto en el servidor.
@@ -195,6 +199,13 @@ func (s *Servidor) ConMemoria(g *memoria.Gestor) *Servidor {
 // Debe llamarse antes de Iniciar().
 func (s *Servidor) ConOrquestador(o *orquestador.Orquestador) *Servidor {
         s.orquestador = o
+        return s
+}
+
+// ConPipeline inyecta el pipeline de chat en el servidor (Fase 7).
+// Debe llamarse después de ConOrquestador, ConCatalogo, ConMemoria, ConAutoGestor.
+func (s *Servidor) ConPipeline(p *pipeline.Pipeline) *Servidor {
+        s.pipelineMgr = p
         return s
 }
 
