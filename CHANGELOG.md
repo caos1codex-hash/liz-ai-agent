@@ -1,5 +1,114 @@
 # Changelog — Liz AI Agent
 
+## [0.4.0] — Fase 4: Orquestador Multi-Modelo NVIDIA + Memoria Conversacional
+
+> **Liz ahora puede conversar y recordar. Combina memoria de código
+> (Fase 3.5) con memoria conversacional (Fase 3.5+) y orquestación
+> multi-modelo NVIDIA (Fase 4).**
+
+### Análisis de brechas (commit f44fef7)
+- `docs/ANALISIS_MEMORIA.md`: comparativa detallada del sistema de memoria
+  y contexto actual vs. Mem0, Letta, Zep, LangGraph, Claude Code, Cursor,
+  Aider, Copilot, Continue.dev y Sourcegraph Cody.
+- Identificación de 3 brechas críticas: memoria conversacional, embeddings
+  vectoriales reales, stubs del empaquetador.
+- Roadmap de 6 iteraciones para cerrar las brechas.
+
+### Mejoras del empaquetador (commit 2089bff)
+- **Capa 3 (Imports expandidos)**: BFS real sobre el grafo de dependencias.
+  Usa `Grafo.Vecinos` + callback `ObtenerFragmentosPorRuta` para traer el
+  código completo de los archivos importados. Profundidad configurable
+  (1 = directos, 2 = transitivos, 0 = deshabilitado).
+- **Capa 4 (Archivos recientes)**: usa `ObtenerFragmentosPorRuta` para
+  incluir el código completo de los archivos recientemente editados.
+  Deduplica fragmentos ya incluidos en capas anteriores.
+- Antes: las capas 3 y 4 eran stubs (`TokensImports` y `TokensRecientes`
+  siempre eran 0). Ahora entregan valor real.
+
+### Sistema de Memoria Conversacional (commit e710bb7)
+Nuevo paquete `internal/nucleo/memoria/` inspirado en Mem0 + Letta + Zep:
+
+- **Sesiones**: conversaciones con uuid, usuario, timestamps, persistencia
+  atómica en `~/.liz/memoria/sesiones/<uuid>.json`. Cache en memoria +
+  reload automático de sesiones activas al iniciar. Cierre automático de
+  sesión previa al crear nueva (estilo Zep). Título autogenerado del
+  primer mensaje del usuario.
+- **Mensajes**: turnos de chat con metadata y estimación de tokens.
+- **Hechos**: tripletas (sujeto, predicado, objeto) con confianza.
+  RESOLUCIÓN DE CONFLICTOS estilo Mem0: si un hecho nuevo tiene mismo
+  (sujeto, predicado) que uno existente con objeto diferente, el viejo
+  se marca `Obsoleto=true` y el nuevo lo reemplaza. Hechos duplicados
+  (mismo objeto): se promedia la confianza.
+- **Gestor unificado**: `ContextoParaLLM(usuarioID, n_mensajes, n_hechos)`
+  ensambla memoria semántica + memoria episódica en un solo string.
+
+### Orquestador NVIDIA (commit a36ed0e)
+Nuevo paquete `internal/nucleo/orquestador/` (Fase 4 del roadmap):
+
+- **ClienteNVIDIA**: HTTP client stdlib (sin dependencias externas),
+  compatible con API OpenAI. Endpoints: `/chat/completions` (JSON y SSE),
+  `/embeddings` (stub para Fase 4.1 con `nv-embed-v1`).
+- **Selector**: `SeleccionarModelo(tarea, modeloEspecifico)` elige el
+  mejor modelo por tarea (heurística ES→EN: codigo→code, razonamiento→
+  nemotron, etc.) + métricas históricas (tasa de éxito desc, latencia asc).
+- **Completar con fallback**: prueba cadena principal→fallback. Error
+  reinterrable (429, 5xx) → siguiente modelo. Error no reinterrable
+  (401, 403, 404) → fail fast.
+- **CompletarStream**: SSE con fallback limitado (max 3 intentos, solo
+  si falla antes del primer chunk).
+- **Métricas**: exitos, fallos, tasa_exito, latencia_promedio,
+  tokens_consumidos, ultimo_uso por modelo.
+
+### Integración servidor + main (commit iter5)
+- **Servidor**: 13 endpoints nuevos:
+  - 4 del orquestador: estado, modelos, métricas, completar (JSON o SSE)
+  - 9 de memoria: sesiones (listar, crear, obtener, cerrar, agregar mensaje),
+    hechos (listar, crear, eliminar), contexto unificado
+- **Builders**: `ConMemoria(gestor)`, `ConOrquestador(orch)` para DI.
+- **Helpers**: `requiereMemoria(w)`, `requiereOrquestador(w)` retornan 503
+  si la dependencia no está inyectada (orquestador es opcional — requiere
+  API key NVIDIA válida).
+- **main.go**: wiring completo. Orquestador opcional: si no hay API key
+  configurada, queda deshabilitado y los endpoints responden 503.
+  Versión 0.4.0.
+
+### Config
+- `NuevoGestorConConfig(cfg)`: constructor público para tests e inyección
+  de dependencias (no requiere archivo YAML ni directorios).
+
+### Tests
+- **342 tests en total** (todos pasando)
+- **+27 tests memoria**: sesiones, mensajes, hechos, conflictos, persistencia
+- **+16 tests orquestador**: cliente HTTP, selección, fallback, métricas, streaming, embeddings
+- **+11 tests empaquetador**: capas 3 y 4, integración completa
+- **+2 tests servidor**: 503 cuando orquestador/memoria no inyectados
+- **Fix flaky test**: `TestRRF_FusionDosRankings` era flaky (3 fragmentos
+  con contenido idéntico → orden BM25 randomizado por iteración de mapa).
+  Cambiado a contenidos distintos + aserción top-2 más robusta.
+
+### Endpoints nuevos
+
+```
+# Orquestador (Fase 4)
+GET  /api/v1/orquestador                  # estado
+GET  /api/v1/orquestador/modelos          # listar modelos (sanitizado)
+GET  /api/v1/orquestador/metricas         # métricas de uso
+POST /api/v1/orquestador/completar        # chat completion (JSON o SSE)
+
+# Memoria conversacional (Fase 3.5+)
+GET    /api/v1/memoria/sesiones           # ?usuario_id=X&solo_activas=true
+POST   /api/v1/memoria/sesiones           # body: {usuario_id, proyecto}
+GET    /api/v1/memoria/sesiones/{id}      # obtener sesión por uuid
+POST   /api/v1/memoria/sesiones/{id}/cerrar  # ?usuario_id=X
+POST   /api/v1/memoria/sesiones/{id}/mensajes  # body: {usuario_id, rol, contenido}
+GET    /api/v1/memoria/hechos             # ?usuario_id=X
+POST   /api/v1/memoria/hechos             # body: {usuario_id, sujeto, predicado, objeto, ...}
+DELETE /api/v1/memoria/hechos/{id}        # ?usuario_id=X
+GET    /api/v1/memoria/contexto           # ?usuario_id=X&mensajes=10&hechos=20
+```
+
+---
+
 ## [0.3.5] — Fase 3.5: Sistema de Memoria World-Class
 
 > **Combina lo mejor de Claude Code, Cursor, Aider, GitHub Copilot, Continue.dev

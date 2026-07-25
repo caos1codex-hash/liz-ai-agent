@@ -15,6 +15,8 @@ import (
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/config"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/logger"
+        "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/memoria"
+        "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/orquestador"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/permisos"
         "github.com/gorilla/mux"
 )
@@ -51,13 +53,15 @@ type RespuestaPermisoPost struct {
 // Servidor es el servidor HTTP principal de Liz.
 // Contiene el router, las dependencias inyectadas y la configuración.
 type Servidor struct {
-        router     *mux.Router
-        httpServ   *http.Server
-        gestorCfg  *config.Gestor
-        gestorPer  *permisos.Gestor
-        gestorCtx  *contexto.Coordinador // opcional, se inyecta en Fase 3
-        log        *logger.Logger
-        inicio     time.Time
+        router      *mux.Router
+        httpServ    *http.Server
+        gestorCfg   *config.Gestor
+        gestorPer   *permisos.Gestor
+        gestorCtx   *contexto.Coordinador    // opcional, se inyecta en Fase 3
+        gestorMem   *memoria.Gestor          // opcional, se inyecta en Fase 3.5+ (memoria conversacional)
+        orquestador *orquestador.Orquestador // opcional, se inyecta en Fase 4
+        log         *logger.Logger
+        inicio      time.Time
 }
 
 // ============================================================================
@@ -136,8 +140,25 @@ func (s *Servidor) registrarRutas() {
         s.router.HandleFunc("/api/v1/contexto/proyectos/{nombre}/empaquetar", s.handlerContextoEmpaquetar).Methods("POST", "OPTIONS")
 
         // --- Stubs Fase 4+ (sin implementar) ---
+        // Fase 4 (orquestador) — implementado en iter5
+        s.router.HandleFunc("/api/v1/orquestador", s.handlerOrquestadorEstado).Methods("GET", "OPTIONS")
+        s.router.HandleFunc("/api/v1/orquestador/modelos", s.handlerOrquestadorModelos).Methods("GET", "OPTIONS")
+        s.router.HandleFunc("/api/v1/orquestador/metricas", s.handlerOrquestadorMetricas).Methods("GET", "OPTIONS")
+        s.router.HandleFunc("/api/v1/orquestador/completar", s.handlerOrquestadorCompletar).Methods("POST", "OPTIONS")
+
+        // --- Memoria conversacional (Fase 3.5+) ---
+        s.router.HandleFunc("/api/v1/memoria/sesiones", s.handlerMemoriaSesiones).Methods("GET", "OPTIONS")
+        s.router.HandleFunc("/api/v1/memoria/sesiones", s.handlerMemoriaNuevaSesion).Methods("POST", "OPTIONS")
+        s.router.HandleFunc("/api/v1/memoria/sesiones/{id}", s.handlerMemoriaObtenerSesion).Methods("GET", "OPTIONS")
+        s.router.HandleFunc("/api/v1/memoria/sesiones/{id}/cerrar", s.handlerMemoriaCerrarSesion).Methods("POST", "OPTIONS")
+        s.router.HandleFunc("/api/v1/memoria/sesiones/{id}/mensajes", s.handlerMemoriaAgregarMensaje).Methods("POST", "OPTIONS")
+        s.router.HandleFunc("/api/v1/memoria/hechos", s.handlerMemoriaHechos).Methods("GET", "OPTIONS")
+        s.router.HandleFunc("/api/v1/memoria/hechos", s.handlerMemoriaAgregarHecho).Methods("POST", "OPTIONS")
+        s.router.HandleFunc("/api/v1/memoria/hechos/{id}", s.handlerMemoriaEliminarHecho).Methods("DELETE", "OPTIONS")
+        s.router.HandleFunc("/api/v1/memoria/contexto", s.handlerMemoriaContexto).Methods("GET", "OPTIONS")
+
+        // --- Stubs fases futuras ---
         s.router.HandleFunc("/api/v1/tools", s.handlerStub("tools")).Methods("GET", "OPTIONS")
-        s.router.HandleFunc("/api/v1/orquestador", s.handlerStub("orquestador")).Methods("GET", "OPTIONS")
         s.router.HandleFunc("/api/v1/modelos", s.handlerStub("modelos")).Methods("GET", "OPTIONS")
         s.router.HandleFunc("/api/v1/conversations", s.handlerStub("conversations")).Methods("GET", "OPTIONS")
         s.router.HandleFunc("/api/v1/chat", s.handlerStub("chat")).Methods("POST", "OPTIONS")
@@ -150,12 +171,46 @@ func (s *Servidor) ConCoordinador(coordinador *contexto.Coordinador) *Servidor {
         return s
 }
 
+// ConMemoria inyecta el gestor de memoria conversacional en el servidor.
+// Debe llamarse antes de Iniciar().
+func (s *Servidor) ConMemoria(g *memoria.Gestor) *Servidor {
+        s.gestorMem = g
+        return s
+}
+
+// ConOrquestador inyecta el orquestador multi-modelo en el servidor.
+// Debe llamarse antes de Iniciar().
+func (s *Servidor) ConOrquestador(o *orquestador.Orquestador) *Servidor {
+        s.orquestador = o
+        return s
+}
+
 // requiereCoordinador verifica que el coordinador esté disponible.
 // Si no lo está, responde 503 Service Unavailable y retorna false.
 func (s *Servidor) requiereCoordinador(w http.ResponseWriter) bool {
         if s.gestorCtx == nil {
                 s.responderError(w, http.StatusServiceUnavailable,
                         "coordinador de contexto no disponible (Fase 3 no inicializada)")
+                return false
+        }
+        return true
+}
+
+// requiereMemoria verifica que el gestor de memoria esté disponible.
+func (s *Servidor) requiereMemoria(w http.ResponseWriter) bool {
+        if s.gestorMem == nil {
+                s.responderError(w, http.StatusServiceUnavailable,
+                        "sistema de memoria no disponible (Fase 3.5+ no inicializada)")
+                return false
+        }
+        return true
+}
+
+// requiereOrquestador verifica que el orquestador esté disponible.
+func (s *Servidor) requiereOrquestador(w http.ResponseWriter) bool {
+        if s.orquestador == nil {
+                s.responderError(w, http.StatusServiceUnavailable,
+                        "orquestador no disponible (Fase 4 no inicializada o sin API key NVIDIA)")
                 return false
         }
         return true

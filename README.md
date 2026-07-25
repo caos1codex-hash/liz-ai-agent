@@ -4,8 +4,8 @@
 > No es un chatbot. No es un asistente de codigo. Es un sistema operativo de IA.
 
 ![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8)
-![Phase](https://img.shields.io/badge/fase-3.5%20de%2010-orange)
-![Tests](https://img.shields.io/badge/tests-283%20pasando-brightgreen)
+![Phase](https://img.shields.io/badge/fase-4%20de%2010-orange)
+![Tests](https://img.shields.io/badge/tests-342%20pasando-brightgreen)
 
 ## Que hace Liz?
 
@@ -49,7 +49,7 @@ FRONTEND (React) ──SSE──> PIPELINE ──> ORQUESTADOR (8+ modelos NVIDI
 | 1 | Nucleo Base | [#9](https://github.com/caos1codex-hash/liz-ai-agent/issues/9) | ✅ |
 | 2 | Permisos y Config | [#10](https://github.com/caos1codex-hash/liz-ai-agent/issues/10) | ✅ |
 | 3 | Sistema de Contexto | [#11](https://github.com/caos1codex-hash/liz-ai-agent/issues/11) | ✅ |
-| 4 | Orquestador NVIDIA | [#12](https://github.com/caos1codex-hash/liz-ai-agent/issues/12) | ⏳ |
+| 4 | Orquestador NVIDIA | [#12](https://github.com/caos1codex-hash/liz-ai-agent/issues/12) | ✅ |
 | 5 | Herramientas Base | [#13](https://github.com/caos1codex-hash/liz-ai-agent/issues/13) | ⏳ |
 | 6 | Auto-Creacion | [#14](https://github.com/caos1codex-hash/liz-ai-agent/issues/14) | ⏳ |
 | 7 | Pipeline de Chat | [#15](https://github.com/caos1codex-hash/liz-ai-agent/issues/15) | ⏳ |
@@ -100,6 +100,48 @@ POST   /api/v1/contexto/proyectos/{nombre}/empaquetar       # context packing
 Soportados: Go (con AST real), Python, JavaScript/TypeScript, Rust, Java, C/C++.
 Go usa `go/parser` para extraer funciones, métodos, structs, interfaces, tipos,
 constantes y variables con firma completa y docstrings.
+
+## Sistema de Memoria Conversacional (Fase 3.5+)
+
+Memoria world-class inspirada en Mem0 + Letta + Zep:
+
+- **Sesiones**: conversaciones con uuid, usuario, timestamps, persistencia atomica
+- **Mensajes**: turnos de chat con metadata y estimacion de tokens
+- **Hechos**: tripletas (sujeto, predicado, objeto) con resolucion de conflictos
+  (estilo Mem0 — hecho nuevo reemplaza viejo si mismo sujeto+predicado)
+- **Recall memory**: ultimos N mensajes como buffer circular (estilo Letta)
+- **Contexto unificado**: `ContextoParaLLM()` ensambla memoria semantica + episodica
+
+```
+GET    /api/v1/memoria/sesiones?usuario_id=X          # listar sesiones
+POST   /api/v1/memoria/sesiones                       # nueva sesion
+GET    /api/v1/memoria/sesiones/{id}                  # obtener sesion
+POST   /api/v1/memoria/sesiones/{id}/cerrar           # cerrar sesion
+POST   /api/v1/memoria/sesiones/{id}/mensajes         # agregar mensaje
+GET    /api/v1/memoria/hechos?usuario_id=X            # listar hechos
+POST   /api/v1/memoria/hechos                         # crear hecho
+DELETE /api/v1/memoria/hechos/{id}?usuario_id=X       # eliminar hecho
+GET    /api/v1/memoria/contexto?usuario_id=X          # contexto para LLM
+```
+
+## Orquestador Multi-Modelo NVIDIA (Fase 4)
+
+Conecta con la API de NVIDIA (compatible OpenAI) y orquesta 8+ modelos
+con seleccion inteligente + fallback automatico + metricas:
+
+- **Seleccion**: por tipo de tarea (codigo, razonamiento, general, etc.)
+- **Fallback**: si un modelo falla con error reinterrable (429/5xx),
+  intenta el siguiente en la cadena
+- **Metricas**: exitos, fallos, tasa de exito, latencia promedio por modelo
+- **Streaming SSE**: respuesta progresiva via Server-Sent Events
+- **Embeddings**: stub para nv-embed-v1 (integracion con buscador en Fase 4.1)
+
+```
+GET  /api/v1/orquestador                  # estado
+GET  /api/v1/orquestador/modelos          # listar modelos (sin API keys)
+GET  /api/v1/orquestador/metricas         # metricas de uso
+POST /api/v1/orquestador/completar        # chat completion (JSON o SSE)
+```
 
 ## Stack
 

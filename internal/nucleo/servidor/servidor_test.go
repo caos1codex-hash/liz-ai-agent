@@ -420,7 +420,9 @@ func TestHandlerPermisosAuditoria(t *testing.T) {
 func TestHandlerStub_NotImplemented(t *testing.T) {
         srv, _, _ := setupTestServidor(t)
 
-        endpoints := []string{"/api/v1/tools", "/api/v1/orquestador", "/api/v1/modelos",
+        // /api/v1/orquestador ya NO es un stub: ahora es un handler real que
+        // responde 503 si el orquestador no está inyectado. Se testea aparte.
+        endpoints := []string{"/api/v1/tools", "/api/v1/modelos",
                 "/api/v1/conversations"}
 
         for _, ep := range endpoints {
@@ -436,6 +438,36 @@ func TestHandlerStub_NotImplemented(t *testing.T) {
                 if resp["exito"] != false {
                         t.Errorf("GET %s: exito debería ser false", ep)
                 }
+        }
+}
+
+// TestOrquestador_SinInyectar_Responde503 verifica que los endpoints del
+// orquestador respondan 503 cuando no se ha inyectado (Fase 4 opcional).
+func TestOrquestador_SinInyectar_Responde503(t *testing.T) {
+        srv, _, _ := setupTestServidor(t)
+
+        for _, ep := range []string{"/api/v1/orquestador", "/api/v1/orquestador/modelos", "/api/v1/orquestador/metricas"} {
+                req := httptest.NewRequest("GET", ep, nil)
+                rec := httptest.NewRecorder()
+                srv.router.ServeHTTP(rec, req)
+
+                if rec.Code != http.StatusServiceUnavailable {
+                        t.Errorf("GET %s: Status = %d, se esperaba 503 (orquestador no inyectado)", ep, rec.Code)
+                }
+        }
+}
+
+// TestMemoria_SinInyectar_Responde503 verifica que los endpoints de memoria
+// respondan 503 cuando no se ha inyectado el gestor.
+func TestMemoria_SinInyectar_Responde503(t *testing.T) {
+        srv, _, _ := setupTestServidor(t)
+
+        req := httptest.NewRequest("GET", "/api/v1/memoria/sesiones?usuario_id=x", nil)
+        rec := httptest.NewRecorder()
+        srv.router.ServeHTTP(rec, req)
+
+        if rec.Code != http.StatusServiceUnavailable {
+                t.Errorf("GET /api/v1/memoria/sesiones: Status = %d, se esperaba 503", rec.Code)
         }
 }
 
