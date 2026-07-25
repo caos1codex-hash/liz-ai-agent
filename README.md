@@ -4,8 +4,8 @@
 > No es un chatbot. No es un asistente de codigo. Es un sistema operativo de IA.
 
 ![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8)
-![Phase](https://img.shields.io/badge/fase-4%20de%2010-orange)
-![Tests](https://img.shields.io/badge/tests-369%20pasando-brightgreen)
+![Phase](https://img.shields.io/badge/fase-5%20de%2010-orange)
+![Tests](https://img.shields.io/badge/tests-556%20pasando-brightgreen)
 
 ## Que hace Liz?
 
@@ -50,7 +50,7 @@ FRONTEND (React) ──SSE──> PIPELINE ──> ORQUESTADOR (8+ modelos NVIDI
 | 2 | Permisos y Config | [#10](https://github.com/caos1codex-hash/liz-ai-agent/issues/10) | ✅ |
 | 3 | Sistema de Contexto | [#11](https://github.com/caos1codex-hash/liz-ai-agent/issues/11) | ✅ |
 | 4 | Orquestador NVIDIA | [#12](https://github.com/caos1codex-hash/liz-ai-agent/issues/12) | ✅ |
-| 5 | Herramientas Base | [#13](https://github.com/caos1codex-hash/liz-ai-agent/issues/13) | ⏳ |
+| 5 | Herramientas Base | [#13](https://github.com/caos1codex-hash/liz-ai-agent/issues/13) | ✅ |
 | 6 | Auto-Creacion | [#14](https://github.com/caos1codex-hash/liz-ai-agent/issues/14) | ⏳ |
 | 7 | Pipeline de Chat | [#15](https://github.com/caos1codex-hash/liz-ai-agent/issues/15) | ⏳ |
 | 8 | Frontend | [#16](https://github.com/caos1codex-hash/liz-ai-agent/issues/16) | ⏳ |
@@ -141,6 +141,75 @@ GET  /api/v1/orquestador                  # estado
 GET  /api/v1/orquestador/modelos          # listar modelos (sin API keys)
 GET  /api/v1/orquestador/metricas         # metricas de uso
 POST /api/v1/orquestador/completar        # chat completion (JSON o SSE)
+```
+
+## Sistema de Herramientas (Fase 5)
+
+7 herramientas integradas que dan a Liz control total sobre el sistema.
+Cada herramienta implementa la interfaz estándar `Herramienta` (D-002)
+y se registra en un catálogo thread-safe con métricas automáticas.
+
+| Herramienta | Operaciones | Descripción |
+|-------------|-------------|-------------|
+| **terminal** | ejecutar | Comandos shell con timeout, captura stdout/stderr, detección de peligrosos (`rm -rf /`, `mkfs`, `shutdown`, fork bomb) |
+| **navegador_archivos** | listar, stat, arbol, existe | Navegación de directorios con filtros glob/extensión, profundidad configurable |
+| **buscador** | archivos, contenido, combinado | Find por patrón + grep recursivo con regex, contexto, paralelización |
+| **editor** | leer, escribir, agregar, insertar, reemplazar, parchear, eliminar, crear_directorio, mover, copiar | Manipulación completa de archivos con backup automático y permisos octal |
+| **procesos** | listar, info, matar, arbol | Gestión de procesos vía /proc en Linux (CPU%, RAM%, threads, cmdline) |
+| **monitor** | completo, cpu, memoria, disco, red, uptime | Métricas en tiempo real: load avg, cores/frecuencias, RAM/SWAP, statvfs, /proc/net/dev |
+| **instalador** | instalar, desinstalar, actualizar, buscar, info, gestores, actualizar_todo | 16 gestores soportados: apt, snap, dnf, pacman, brew, pip, npm, cargo, gem, composer, go, etc. |
+
+### Endpoints
+
+```
+GET    /api/v1/herramientas                       # listar catálogo
+GET    /api/v1/herramientas/{nombre}              # info de herramienta
+POST   /api/v1/herramientas/ejecutar              # ejecutar (body: {nombre, parametros, timeout_segundos})
+GET    /api/v1/herramientas/metricas              # métricas globales
+GET    /api/v1/herramientas/metricas/{nombre}     # métricas por herramienta
+```
+
+### Ejemplo de uso
+
+```bash
+# Listar herramientas disponibles
+curl http://localhost:3000/api/v1/herramientas
+
+# Ejecutar la herramienta 'terminal' para un echo
+curl -X POST http://localhost:3000/api/v1/herramientas/ejecutar \
+  -H "Content-Type: application/json" \
+  -d '{"nombre": "terminal", "parametros": {"comando": "echo", "args": ["hola"]}}'
+
+# Ver métricas de uso
+curl http://localhost:3000/api/v1/herramientas/metricas
+```
+
+### Arquitectura de herramientas
+
+```
+┌─────────────────────────────────────────────────────┐
+│  HTTP: POST /api/v1/herramientas/ejecutar           │
+└──────────────────────┬──────────────────────────────┘
+                       ▼
+┌─────────────────────────────────────────────────────┐
+│  Catalogo.Ejecutar(ctx, nombre, params)             │
+│  - lookup por nombre (thread-safe)                  │
+│  - mide latencia automáticamente                    │
+│  - inyecta metadata (duracion_ms, herramienta)      │
+└──────────────────────┬──────────────────────────────┘
+                       ▼
+┌─────────────────────────────────────────────────────┐
+│  Herramienta.Ejecutar(ctx, params) → Resultado      │
+│  - valida params con helpers (ObtenerString/Int/…)  │
+│  - respeta ctx.Done() (cancellation/timeout)        │
+│  - retorna Resultado{Exito, Datos, Error, Metadata} │
+└──────────────────────┬──────────────────────────────┘
+                       ▼
+┌─────────────────────────────────────────────────────┐
+│  Metricas.RegistrarEjecucion(nombre, exito, dur)    │
+│  - exitos, fallos, tasa, latencia min/max/prom      │
+│  - último error, último uso                         │
+└─────────────────────────────────────────────────────┘
 ```
 
 ## Stack

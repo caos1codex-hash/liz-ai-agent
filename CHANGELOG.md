@@ -1,5 +1,207 @@
 # Changelog — Liz AI Agent
 
+## [0.5.0] — Fase 5: Herramientas Base (7 integradas)
+
+> **Liz ahora puede manipular el sistema operativo. 7 herramientas integradas
+> dan control total: terminal, navegador de archivos, buscador, editor,
+> procesos, monitor de sistema e instalador de paquetes.**
+
+### Sistema de Herramientas (`internal/nucleo/herramientas/`)
+
+Nuevo paquete con la **interfaz estándar Herramienta** (D-002):
+
+- **`Herramienta`** interfaz: `Nombre()`, `Descripcion()`, `Parametros()`,
+  `Ejecutar(ctx, params) (Resultado, error)`, `Validar() error`
+- **`Parametro`** tipo rico: `Tipo` (string/int/bool/float/array/object),
+  `Requerido`, `Default`, `Opciones` (enum), `Min`/`Max` (rango o longitud),
+  `Items` (tipo de elementos para arrays)
+- **`Resultado`** tipo: `Exito`, `Datos`, `Error`, `Metadata`
+- **5 errores tipados**: `ErrParametroRequerido`, `ErrTipoParametro`,
+  `ErrValorFueraDeRango`, `ErrOpcionInvalida`, `ErrHerramientaInvalida`
+- **Helpers de validación**: `ObtenerString/Int/Bool/Float/ArrayString` con
+  coercion automática desde JSON (float64), strings numéricos, etc.
+- **`ValidarNombre`**: reglas a-z0-9_ longitud 2-64
+- **Compile-time check** documentado: `var _ Herramienta = (*MiHerramienta)(nil)`
+
+### Catálogo y Métricas (`internal/nucleo/herramientas/registro/`)
+
+- **`Catalogo`**: thread-safe (sync.RWMutex), registrar/obtener/eliminar/
+  listar/ejecutar
+- **Validación al registrar**: `ValidarNombre` + `Validar()` de la herramienta
+- **Reemplazo de duplicados** (hot-reload para Fase 6)
+- **`Ejecutar`** mide latencia automáticamente + inyecta metadata
+  (`duracion_ms`, `herramienta`)
+- **`Metricas`** por herramienta: exitos, fallos, tasa_exito, latencia
+  min/max/promedio, último_uso, último_error
+- **`Resumen`** global: total_herramientas, total_ejecuciones, tasa_exito_global
+- **`Snapshot`** serializable para API REST
+- **Concurrencia**: tests con 100 goroutines registrando + ejecutando
+
+### 7 Herramientas Integradas (`internal/nucleo/herramientas/integradas/`)
+
+#### 1. `terminal` — Ejecución de comandos shell
+- Timeout configurable (1-300s, default 30s)
+- Modo shell=true para pipes (`|`), redirecciones (`>`), `&&`
+- Captura stdout/stderr (combinados o separados)
+- Working directory y variables de entorno extra
+- **Detección de comandos peligrosos** (`rm -rf /`, `mkfs`, `dd of=/dev/sd*`,
+  `shutdown`, `halt`, `reboot`, fork bomb `:(){:|:&};:`) — requiere flag
+  `peligroso_confirma=true` explícito
+- Limitación de output (1MB) con truncado signalizado
+- Cancellation limpia vía `context.WithTimeout` + `exec.CommandContext`
+
+#### 2. `navegador_archivos` — Navegación de directorios
+- 4 operaciones: `listar`, `stat`, `arbol`, `existe`
+- Filtros: patrón glob, extensiones, incluir_ocultos
+- Profundidad configurable en `arbol` (0-20, default 1)
+- Orden: directorios primero, luego alfabético
+- Stat completo: tamaño, permisos, timestamps, tipo, symlink dest
+- Limitación de resultados con flag `Truncado`
+
+#### 3. `buscador` — Find + grep
+- 3 operaciones: `archivos`, `contenido`, `combinado`
+- Filtros: patrón, extensiones, mtime (RFC3339/duración como `24h`, `7d`),
+  tamaño min/max
+- Búsqueda de contenido: literal + regex (Go syntax)
+- Case-insensitive configurable
+- Contexto (líneas antes/después) hasta 10
+- **Búsqueda paralela** para >10 archivos (8 workers)
+- Salta archivos binarios por extensión (`.png`, `.zip`, `.pdf`, etc.)
+- Salta archivos >10MB
+
+#### 4. `editor` — Manipulación de archivos
+- 10 operaciones: `leer`, `escribir`, `agregar`, `insertar`, `reemplazar`,
+  `parchear`, `eliminar`, `crear_directorio`, `mover`, `copiar`
+- Reemplazo literal + regex (Go syntax)
+- Modo `todas` (todas las ocurrencias) o solo primera
+- `parchear` falla si no encuentra el patrón (semántica estricta)
+- **Backup automático** opcional (`.bak`)
+- Creación automática de directorios padres
+- Permisos configurables (octal string: `'0644'`, `'755'`, etc.)
+- Limitación de líneas en `leer` (truncado signalizado)
+- Copia preserva permisos del original
+- Copia de directorios recursiva
+
+#### 5. `procesos` — Gestión de procesos
+- 4 operaciones: `listar`, `info`, `matar`, `arbol`
+- Lee `/proc` en Linux (`comm`, `cmdline`, `stat`, `status`)
+- Métricas: PID, PPID, CPU%, RAM%, RSS, Virtual, threads
+- Filtros: nombre, usuario, ram_min, cpu_min
+- 6 señales soportadas: SIGTERM, SIGKILL, SIGINT, SIGHUP, SIGSTOP, SIGCONT
+- Árbol de procesos desde PID raíz
+- Fallback a `ps` en no-Linux
+
+#### 6. `monitor` — Métricas de sistema
+- 6 operaciones: `completo`, `cpu`, `memoria`, `disco`, `red`, `uptime`
+- **CPU**: load avg (1/5/15min), uso %, num cores, frecuencias por core
+  (vía `/sys/devices/system/cpu/`)
+- **Memoria**: total/libre/disponible/buffers/cached/used + swap (vía
+  `/proc/meminfo`)
+- **Disco**: statvfs (total/libre/usado + inodos)
+- **Red**: bytes/paquetes/errores RX+TX por interfaz, MAC, MTU, operstate
+  (vía `/proc/net/dev` + `/sys/class/net/`)
+- **Uptime**: segundos + humanizado + btime (vía `/proc/uptime` + `/proc/stat`)
+- Cálculo de uso de CPU con dos muestras de `/proc/stat` separadas 100ms
+
+#### 7. `instalador` — Gestión de paquetes
+- 7 operaciones: `instalar`, `desinstalar`, `actualizar`, `buscar`, `info`,
+  `gestores`, `actualizar_todo`
+- **16 gestores soportados**: apt, apt-get, snap, dnf, yum, pacman, zypper,
+  apk, brew, pip, pip3, npm, yarn, cargo, gem, composer, go install
+- **Autodetección**: heurística por tipo de paquete (`python-*` → pip,
+  `github.com/` → go, `@` → npm)
+- Modo **dry-run** (`solo_verificar`) retorna comando sin ejecutar
+- **Sudo automático** para gestores del sistema (apt, dnf, etc.)
+- Versión de cada gestor en `/gestores`
+- Construcción de args específica por gestor y operación
+
+### Integración Servidor (`internal/nucleo/servidor/handlers_fase5.go`)
+
+- Campo `catalogo` añadido al struct `Servidor`
+- Builder `ConCatalogo(cat)` para inyección de dependencias
+- Helper `requiereCatalogo(w)` responde 503 si no inyectado
+- 6 endpoints nuevos:
+  - `GET /api/v1/herramientas` — listar catálogo
+  - `GET /api/v1/herramientas/{nombre}` — info detallada
+  - `POST /api/v1/herramientas/ejecutar` — ejecutar herramienta
+  - `GET /api/v1/herramientas/metricas` — métricas globales
+  - `GET /api/v1/herramientas/metricas/{nombre}` — métricas por herramienta
+  - `GET /api/v1/tools` — compatibilidad hacia atrás
+- Rutas ordenadas: específicas (`/ejecutar`, `/metricas`) antes que
+  `{nombre}` para evitar captura errónea
+- `Ejecutar` respeta timeout opcional del body
+- Métricas se registran automáticamente via catálogo
+
+### Wiring en `cmd/liz/main.go`
+
+- Import paquetes `herramientas`, `integradas`, `registro`
+- Inicializa catálogo con `ConLog`
+- Registra las 7 herramientas integradas iterando sobre lista tipada
+- Builder `ConCatalogo(catalogo)` en servidor
+- Log informativo: "Endpoints de herramientas disponibles en
+  /api/v1/herramientas/*"
+- Versión **0.5.0** (bump desde 0.4.0)
+
+### Tests
+
+- **556 tests en total** (vs 369 en v0.4.0 = **+187 tests nuevos**)
+- **+15 tests interfaz**: validación, coercion, rangos, opciones, errores
+- **+22 tests registro**: catálogo + métricas + concurrencia
+- **+14 tests terminal**: echo, timeout, peligroso, directorio, env, shell
+- **+15 tests navegador_archivos**: listar, stat, arbol, existe, límites
+- **+17 tests buscador**: archivos, contenido, regex, combinado, contexto
+- **+24 tests editor**: leer, escribir, agregar, insertar, reemplazar,
+  parchear, eliminar, mover, copiar, backup, permisos
+- **+14 tests procesos**: listar, info, matar, arbol, señales, /proc
+- **+9 tests monitor**: completo, cpu, memoria, disco, red, uptime
+- **+14 tests instalador**: gestores, dry-run, args por gestor, autodetección
+- **+19 tests servidor**: 503 sin catálogo, listar, info, ejecutar, métricas,
+  integración completa end-to-end
+- Todos pasando con `go test -race ./...`
+
+### Endpoints nuevos
+
+```
+# Herramientas (Fase 5)
+GET    /api/v1/herramientas                       # listar catálogo
+GET    /api/v1/herramientas/{nombre}              # info de herramienta
+POST   /api/v1/herramientas/ejecutar              # body: {nombre, parametros, timeout_segundos}
+GET    /api/v1/herramientas/metricas              # métricas globales
+GET    /api/v1/herramientas/metricas/{nombre}     # métricas por herramienta
+GET    /api/v1/tools                              # alias (compatibilidad)
+```
+
+### Estructura de archivos nueva
+
+```
+internal/nucleo/herramientas/
+├── interface.go                   # Herramienta, Parametro, Resultado + helpers
+├── interface_test.go              # 15 tests
+├── integradas/
+│   ├── terminal.go                # 1: terminal
+│   ├── terminal_test.go
+│   ├── navegador_archivos.go      # 2: navegador_archivos
+│   ├── navegador_archivos_test.go
+│   ├── buscador.go                # 3: buscador
+│   ├── buscador_test.go
+│   ├── editor.go                  # 4: editor
+│   ├── editor_test.go
+│   ├── procesos.go                # 5: procesos
+│   ├── procesos_test.go
+│   ├── monitor.go                 # 6: monitor (cross-platform)
+│   ├── monitor_linux.go           # statvfs para Linux
+│   ├── monitor_otros.go           # stub para no-Linux
+│   ├── monitor_test.go
+│   ├── instalador.go              # 7: instalador (16 gestores)
+│   └── instalador_test.go
+└── registro/
+    ├── catalogo.go                # catálogo thread-safe
+    ├── catalogo_test.go           # 22 tests (incluye concurrencia)
+    └── metricas.go                # métricas por herramienta
+```
+
+---
+
 ## [2025-07-25] — Fase 4: Polish
 
 ### Fixed

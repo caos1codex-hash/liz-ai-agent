@@ -644,18 +644,114 @@ Características del frontend:
 
 ## 12. Roadmap — 10 Fases
 
-| # | Fase | Issue | Qué produce |
-|---|------|-------|-------------|
-| 1 | Núcleo Base | #9 | Binario `liz` que arranca servidor en puerto 3000 |
-| 2 | Permisos y Config | #10 | YAML config, permisos una vez, `~/.liz/` |
-| 3 | Sistema de Contexto | #11 | Mapa, fragmentos, árbol, resúmenes bajo demanda |
-| 4 | Orquestador NVIDIA | #12 | API NVIDIA conectada, 8+ modelos, selección inteligente |
-| 5 | Herramientas Base | #13 | 7 herramientas integradas funcionando |
-| 6 | Auto-Creación | #14 | Liz se programa herramientas que no tiene |
-| 7 | Pipeline de Chat | #15 | End-to-end: mensaje → modelo → herramientas → respuesta |
-| 8 | Frontend | #16 | Interfaz ChatGPT clásico con streaming |
-| 9 | Testing y Docs | #17 | Tests, seguridad, documentación completa |
-| 10 | Release v0.1.0 | #18 | Binarios, instalador, release en GitHub |
+| # | Fase | Issue | Qué produce | Estado |
+|---|------|-------|-------------|--------|
+| 1 | Núcleo Base | #9 | Binario `liz` que arranca servidor en puerto 3000 | ✅ |
+| 2 | Permisos y Config | #10 | YAML config, permisos una vez, `~/.liz/` | ✅ |
+| 3 | Sistema de Contexto | #11 | Mapa, fragmentos, árbol, resúmenes bajo demanda | ✅ |
+| 4 | Orquestador NVIDIA | #12 | API NVIDIA conectada, 8+ modelos, selección inteligente | ✅ |
+| 5 | Herramientas Base | #13 | 7 herramientas integradas funcionando | ✅ |
+| 6 | Auto-Creación | #14 | Liz se programa herramientas que no tiene | ⏳ |
+| 7 | Pipeline de Chat | #15 | End-to-end: mensaje → modelo → herramientas → respuesta | ⏳ |
+| 8 | Frontend | #16 | Interfaz ChatGPT clásico con streaming | ⏳ |
+| 9 | Testing y Docs | #17 | Tests, seguridad, documentación completa | ⏳ |
+| 10 | Release v0.1.0 | #18 | Binarios, instalador, release en GitHub | ⏳ |
+
+---
+
+## 12.bis Fase 5 — Sistema de Herramientas (Detalle)
+
+### Visión General
+
+La Fase 5 implementa el sistema de herramientas que da a Liz control total
+sobre el sistema operativo. 7 herramientas integradas cubren todas las
+operaciones necesarias: ejecutar comandos, navegar archivos, buscar,
+editar, gestionar procesos, monitorear sistema e instalar software.
+
+### Interfaz Estándar (D-002)
+
+Toda herramienta implementa la misma interfaz Go, lo que permite:
+
+- Contrato verificable en compile-time (`var _ Herramienta = (*X)(nil)`)
+- Catálogo uniforme para herramientas integradas y auto-creadas (Fase 6)
+- Testing unitario independiente por herramienta
+- Validación por contrato: si no implementa la interfaz, no se registra
+
+```go
+type Herramienta interface {
+    Nombre() string
+    Descripcion() string
+    Parametros() []Parametro
+    Ejecutar(ctx context.Context, params map[string]interface{}) (Resultado, error)
+    Validar() error
+}
+```
+
+### Catálogo y Métricas
+
+- `Catalogo` thread-safe (sync.RWMutex) es el registro central
+- `Registrar(h)` valida nombre + Validar() antes de aceptar
+- `Ejecutar(ctx, nombre, params)` mide latencia automáticamente + inyecta metadata
+- `Metricas` por herramienta: exitos, fallos, tasa_exito, latencia min/max/prom
+- Resumen global para dashboards
+
+### 7 Herramientas Integradas
+
+| # | Herramienta | Operaciones | Implementación |
+|---|-------------|-------------|----------------|
+| 1 | `terminal` | ejecutar | `exec.CommandContext` + timeout + detección de peligrosos |
+| 2 | `navegador_archivos` | listar, stat, arbol, existe | `os.ReadDir` + `filepath.WalkDir` |
+| 3 | `buscador` | archivos, contenido, combinado | `filepath.WalkDir` + `bufio.Scanner` + regex + paralelización |
+| 4 | `editor` | 10 operaciones | `io/ioutil` + `regexp` + backup automático |
+| 5 | `procesos` | listar, info, matar, arbol | `/proc` en Linux, `ps` fallback |
+| 6 | `monitor` | completo, cpu, memoria, disco, red, uptime | `/proc/stat`, `/proc/meminfo`, `/proc/net/dev`, `statvfs(2)` |
+| 7 | `instalador` | instalar, desinstalar, actualizar, buscar, info, gestores | 16 gestores soportados con autodetección |
+
+### Endpoints API
+
+```
+GET    /api/v1/herramientas                       # listar catálogo completo
+GET    /api/v1/herramientas/{nombre}              # info detallada de una herramienta
+POST   /api/v1/herramientas/ejecutar              # ejecutar herramienta
+GET    /api/v1/herramientas/metricas              # métricas globales
+GET    /api/v1/herramientas/metricas/{nombre}     # métricas de una herramienta
+```
+
+### Flujo de Ejecución
+
+```
+POST /api/v1/herramientas/ejecutar
+  body: { "nombre": "terminal", "parametros": {"comando": "ls", "args": ["-la"]} }
+       │
+       ▼
+[Servidor] requiereCatalogo(w) → 503 si no inyectado
+       │
+       ▼
+[Catalogo] Obtener("terminal") → Herramienta
+       │
+       ▼
+[Catalogo] Ejecutar(ctx, "terminal", params)
+       │  inicio := time.Now()
+       │
+       ▼
+[Terminal] Ejecutar(ctx, params)
+       │  - validar params (ObtenerString, ObtenerArrayString, …)
+       │  - detectar comando peligroso (rm -rf /, mkfs, …)
+       │  - ejecutar con context.WithTimeout
+       │  - capturar stdout/stderr
+       │  - truncar a 1MB
+       │  - retornar Resultado{Exito, Datos, Error, Metadata}
+       │
+       ▼
+[Catalogo] Metricas.RegistrarEjecucion("terminal", exito, duracion)
+       │  - incrementa exitos o fallos
+       │  - actualiza latencia min/max/prom
+       │  - registra ultimo_uso, ultimo_error
+       │  - inyecta metadata: duracion_ms, herramienta
+       │
+       ▼
+[Servidor] responderJSON(200, RespuestaAPI{Exito, Datos, Metadata})
+```
 
 ---
 
@@ -689,4 +785,4 @@ Características del frontend:
 ---
 
 *Este documento es vivo. Se actualiza conforme avanza el desarrollo.*
-*Última actualización: 2026-07-25*
+*Última actualización: 2026-07-26 — Fase 5: Herramientas Base completada*
