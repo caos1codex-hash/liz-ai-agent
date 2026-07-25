@@ -1,5 +1,119 @@
 # Changelog — Liz AI Agent
 
+## [0.3.5] — Fase 3.5: Sistema de Memoria World-Class
+
+> **Combina lo mejor de Claude Code, Cursor, Aider, GitHub Copilot, Continue.dev
+> y Sourcegraph Cody en una sola arquitectura.**
+
+### Arquitectura de 7 capas
+
+1. **Fragmentos inmutables** (existente, mejorado)
+2. **Symbol Table con AST real** (NUEVO — `arbol_ast`)
+3. **Code Graph con PageRank** (NUEVO — `grafo`)
+4. **Hybrid Search BM25 + RRF** (NUEVO — `buscador`)
+5. **LLM Summaries (deferred, cached)** (parcial — pendiente Fase 4)
+6. **Repository Map compacto** (NUEVO — `mapa_repo`)
+7. **Context Packer token-aware** (NUEVO — `empaquetador`)
+
+### Nuevo paquete `arbol_ast` — AST parsing real
+- Usa `go/parser` + `go/ast` de la stdlib (sin CGO, sin dependencias)
+- Extrae símbolos ricos: nombre, firma, docstring, receiver, parámetros, retornos
+- Tipos: funcion, metodo, estructura, interface, tipo, constante, variable, import
+- Distinción exported/unexported
+- Manejo graceful de sintaxis inválida
+- Soporte para funciones multi-línea con receiver
+- **Reemplaza los fragmentadores regex** que eran frágiles ante strings y comentarios
+
+### Nuevo paquete `grafo` — Code graph + PageRank
+- Grafo dirigido de dependencias entre archivos
+- PageRank iterativo (50 iteraciones, damping 0.85)
+- Normalización a [0.0, 1.0]
+- Manejo de dangling nodes (sin salidas)
+- `TopN(n)`: archivos más importantes en orden descendente
+- Backlinks y Vecinos para traversal
+- Estadísticas: densidad, promedio imports, archivo top
+- Helpers Go: `ResolverImportGo`, `MatchImportArchivo`, `NormalizarRutaGo`
+- Thread-safe con `sync.RWMutex`
+
+### Nuevo paquete `buscador` — Hybrid search BM25 + RRF
+- BM25 implementado desde cero (sin dependencias)
+  - Inverted index: término → map[fragment_id → tf]
+  - IDF con suavizado: `ln(1 + (N - nt + 0.5) / (nt + 0.5))`
+  - Score: `IDF * (tf * (k1+1)) / (tf + k1*(1-b+b*dl/avgdl))`
+  - Parámetros estándar: k1=1.5, b=0.75
+- Reciprocal Rank Fusion (RRF) para combinar rankings
+  - `score(d) = sum(1 / (k + rank_i(d)))` con k=60
+  - Preparado para fusionar con vector search cuando Fase 4 esté lista
+- Tokenización robusta: lowercase, split por no-alfanumérico, separación de snake_case, 100+ stopwords en inglés/español/lenguajes
+- Stub `BuscarHibridoConVectores` listo para Fase 4 (embeddings NVIDIA)
+
+### Nuevo paquete `mapa_repo` — Repository Map (Aider-style)
+- Vista compacta: solo firmas de símbolos (no código completo)
+- Ordenado por importancia PageRank descendente
+- Limitado por presupuesto de tokens (4 chars ≈ 1 token)
+- `FormatoTexto()` para prompts de LLM
+- `FormatoMarkdown()` para UI/web con iconos por tipo
+- Marca `Truncado=true` si no caben todos los archivos
+- `ArchivosDesdeGrafo` helper de integración
+
+### Nuevo paquete `empaquetador` — Context Packer
+- Ensambla contexto óptimo para LLM en 4 capas:
+  1. Repository Map compacto (~30% del presupuesto)
+  2. Top-K fragmentos por hybrid search (~50% del presupuesto)
+  3. Imports directos expandidos (~15% del presupuesto)
+  4. Archivos recientes (locality bias, ~5% del presupuesto)
+- `SolicitudEmpaquetado`: query, presupuesto, archivos recientes, profundidad
+- `ContextoEmpaquetado`: contenido + metadata detallada
+- `truncarATokens`: corta en límite de palabras (no a mitad)
+- Defaults: presupuesto=8000 tokens, profundidad imports=1
+
+### Coordinador (contexto.go)
+- `ProyectoContexto` extendido con `Parser`, `Grafo`, `Buscador`, `GenMapaRepo`, `Empaquetador`, `Modulo`
+- `IndexarProyecto` ahora construye grafo + indexa buscador automáticamente
+- `construirGrafo`: parsea imports Go, resuelve internos vs externos, calcula PageRank
+- `indexarBuscador`: indexa todos los fragmentos en BM25 con contenido completo
+- `detectarModuloGo`: lee `go.mod` para resolver imports internos
+- Nuevos métodos:
+  - `ObtenerSimbolos(nombre, ruta)` — AST parsing de un archivo Go
+  - `ObtenerGrafo(nombre)` — retorna grafo de dependencias
+  - `ObtenerImportancias(nombre)` — mapa ruta → score PageRank
+  - `BuscarHibrido(nombre, query, topK)` — búsqueda BM25 + RRF
+  - `ObtenerMapaRepo(nombre, presupuestoTokens)` — repo map compacto
+  - `EmpaquetarContexto(solicitud)` — ensambla contexto óptimo
+
+### Servidor — 6 endpoints nuevos
+- `GET /api/v1/contexto/proyectos/{nombre}/simbolos?ruta=X` — AST parsing
+- `GET /api/v1/contexto/proyectos/{nombre}/grafo` — grafo + estadísticas
+- `GET /api/v1/contexto/proyectos/{nombre}/importancia` — PageRank scores
+- `POST /api/v1/contexto/proyectos/{nombre}/buscar-hibrido` — body: `{query, top_k}`
+- `GET /api/v1/contexto/proyectos/{nombre}/mapa-repo?max_tokens=X&formato=texto` — repo map
+- `POST /api/v1/contexto/proyectos/{nombre}/empaquetar` — ensamblado de contexto
+
+### Comparativa: Fase 3 vs Fase 3.5
+
+| Aspecto | Fase 3 (anterior) | Fase 3.5 (world-class) |
+|---|---|---|
+| Fragmentación | Regex (frágil) | go/ast real para Go, regex mejorado otros |
+| Búsqueda | Substring case-insensitive | BM25 + RRF (vector-ready) |
+| Importancia | Alfabética | PageRank sobre grafo de imports |
+| Mapa del repo | Mapa completo (caro) | Compact signature-only (Aider-style) |
+| Context packing | No existe | Token-aware layered packing |
+| Granularidad | Solo fragmento | 4 niveles: 1-línea → párrafo → fragmento → archivo |
+| Símbolos | No | AST con firma, docstring, receiver, parámetros |
+| Grafo de código | No | PageRank + backlinks + vecinos |
+
+### Tests
+- **283 tests en total** (todos pasando)
+- **78 tests nuevos** en Fase 3.5:
+  - `arbol_ast`: 11 tests (funciones, métodos, structs, interfaces, imports, multi-línea, errores)
+  - `grafo`: 12 tests (PageRank, TopN, vecinos, backlinks, estadísticas)
+  - `buscador`: 17 tests (BM25, tokenización, RRF, stopwords, camelCase)
+  - `mapa_repo`: 12 tests (generación, ordenamiento, truncado, formatos)
+  - `empaquetador`: 9 tests (capas, presupuesto, defaults, truncado)
+  - `contexto` integración: 17 tests (end-to-end de grafo, buscador, mapa repo, empaquetador)
+
+---
+
 ## [0.3.0] — Fase 3: Sistema de Contexto
 
 ### Coordinador de Contexto (`internal/nucleo/contexto/`)
