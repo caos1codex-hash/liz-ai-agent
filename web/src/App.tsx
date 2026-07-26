@@ -1,5 +1,4 @@
-// App root — orquesta theme + sidebar + chat + header + proyecto selector.
-// Estado elevado: sesión activa, proyecto actual, modelo en uso, drawer móvil.
+// App root — orquesta theme + sidebar + chat + header + proyecto selector + toasts.
 
 import { useCallback, useState } from 'react'
 import { useTheme } from '@/hooks/useTheme'
@@ -7,12 +6,11 @@ import { AppShell } from '@/components/AppShell'
 import { ChatWindow } from '@/components/ChatWindow'
 import { Sidebar } from '@/components/Sidebar'
 import { Header } from '@/components/Header'
+import { ToastProvider, useToast } from '@/components/Toast'
 import type { UIMensaje } from '@/hooks/useChat'
 
-export default function App() {
-  // Inicializa el theme system (oscuro por defecto, persistencia localStorage).
-  // Se llama dos veces intencionalmente: aquí para garantizar setup temprano,
-  // y el Header también lo usa para el toggle (mismo hook, mismo storage key).
+function AppInner() {
+  // Theme system (oscuro por defecto, persistencia localStorage).
   useTheme()
 
   // Sesión activa: null = nueva conversación anónima.
@@ -27,9 +25,11 @@ export default function App() {
   // Drawer móvil del sidebar.
   const [drawerOpen, setDrawerOpen] = useState(false)
 
+  const toast = useToast()
+
   const handleSeleccionarSesion = useCallback((id: string) => {
     setSesionActivaId(id === '' ? null : id)
-    setDrawerOpen(false) // cerrar drawer en móvil
+    setDrawerOpen(false)
   }, [])
 
   const handleNuevaSesionCreada = useCallback((sesion: { id: string; titulo?: string }) => {
@@ -41,11 +41,17 @@ export default function App() {
     window.dispatchEvent(new CustomEvent('liz:refrescar-sesiones'))
   }, [])
 
-  const handleMensajeCompletado = useCallback((msg: UIMensaje) => {
-    if (msg.modeloUsado) {
-      setUltimoModelo(msg.modeloUsado)
-    }
-  }, [])
+  const handleMensajeCompletado = useCallback(
+    (msg: UIMensaje) => {
+      if (msg.modeloUsado) {
+        setUltimoModelo(msg.modeloUsado)
+      }
+      if (msg.error) {
+        toast.showError(`Error en respuesta: ${msg.error}`)
+      }
+    },
+    [toast],
+  )
 
   return (
     <AppShell
@@ -74,5 +80,13 @@ export default function App() {
         onSesionCreada={handleSesionBackendCreada}
       />
     </AppShell>
+  )
+}
+
+export default function App() {
+  return (
+    <ToastProvider>
+      <AppInner />
+    </ToastProvider>
   )
 }

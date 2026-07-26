@@ -1,5 +1,148 @@
 # Changelog — Liz AI Agent
 
+## [0.8.0] — Fase 8: Frontend
+
+> **Liz ahora tiene cara. El frontend React+TypeScript trae el pipeline de chat
+> a una interfaz ChatGPT-clásica con streaming SSE, sidebar de conversaciones,
+> header con métricas en vivo y soporte responsive completo. Ya no hace falta
+> curl para hablar con Liz — abres el navegador y listo.**
+
+### Frontend (`web/`)
+
+Nuevo directorio con aplicación Vite + React 18 + TypeScript + Tailwind CSS.
+
+**Stack:**
+- React 18 + TypeScript estricto
+- Vite 5 (dev server + proxy a backend)
+- Tailwind CSS 3 con plugin Typography
+- react-markdown + remark-gfm (GFM)
+- react-syntax-highlighter (lazy-loaded)
+- clsx para classNames condicionales
+
+**Estructura:**
+```
+web/
+├── public/liz.svg                  # Logo / favicon
+├── src/
+│   ├── components/                  # 14 componentes reutilizables
+│   │   ├── AppShell.tsx             # Layout responsive (sidebar drawer en móvil)
+│   │   ├── Header.tsx               # Cabecera con status/modelo/métricas/theme toggle
+│   │   ├── Sidebar.tsx              # Lista conversaciones + CRUD
+│   │   ├── SidebarHeader.tsx        # Logo + botón nueva conversación
+│   │   ├── SidebarItem.tsx          # Item conversación (hover delete, keyboard nav)
+│   │   ├── ChatWindow.tsx           # Orquesta MessageList + MessageInput + useChat
+│   │   ├── MessageList.tsx          # Lista mensajes con auto-scroll y welcome state
+│   │   ├── Message.tsx              # Mensaje usuario/asistente con badges
+│   │   ├── MessageInput.tsx         # Textarea auto-expandible, Enter=enviar
+│   │   ├── MessageBadge.tsx         # Pills (modelo/herramienta/categoría/métrica)
+│   │   ├── Markdown.tsx             # react-markdown + remark-gfm + CodeBlock lazy
+│   │   ├── CodeBlock.tsx            # Syntax highlighter + botón copiar
+│   │   ├── TypingIndicator.tsx      # 3 puntos animados "Liz está pensando…"
+│   │   ├── Avatar.tsx               # Avatares usuario/asistente
+│   │   ├── StatusDot.tsx            # Punto de color (online/offline/checking)
+│   │   ├── ProjectSelector.tsx      # Dropdown proyectos indexados
+│   │   ├── MetricsPanel.tsx         # Panel métricas pipeline (desplegable)
+│   │   └── Toast.tsx                # Notificaciones efímeras (error/success/info)
+│   ├── hooks/                       # 7 custom hooks
+│   │   ├── useChat.ts               # Orquestación mensajes + SSE streaming
+│   │   ├── useSesiones.ts           # CRUD sesiones + localStorage sesión activa
+│   │   ├── useBackendHealth.ts      # Poll /api/v1/health cada 30s
+│   │   ├── usePipelineMetricas.ts   # Poll /api/v1/chat cada 60s
+│   │   ├── useModelos.ts            # Carga modelos NVIDIA (única vez)
+│   │   ├── useProyectos.ts          # Carga proyectos indexados
+│   │   ├── useTheme.ts              # Dark/light + persistencia localStorage
+│   │   └── useAutoScroll.ts         # Auto-scroll con detección "usuario abajo"
+│   ├── lib/
+│   │   ├── api.ts                   # Fetch wrapper con timeout, AbortSignal, errores tipados
+│   │   ├── sse.ts                   # Parser SSE para streaming del pipeline
+│   │   ├── endpoints.ts             # chatApi, orquestadorApi, herramientasApi, contextoApi, healthApi
+│   │   └── utils.ts                 # cn(), formatDuration(), formatRelative(), truncate(), shortId()
+│   ├── types/api.ts                 # Espejo de structs Go (SolicitudChat, RespuestaPipeline, ChunkStream, etc.)
+│   ├── styles/globals.css           # Tailwind + estilos base + scrollbar fino
+│   ├── App.tsx                      # Root component con ToastProvider
+│   └── main.tsx                     # Entry point
+├── index.html
+├── package.json
+├── tailwind.config.js               # Paleta Liz (morado) + tokens semánticos + animaciones
+├── tsconfig.json / tsconfig.node.json
+├── vite.config.ts                   # Proxy /api → localhost:3000, code-splitting
+├── postcss.config.js
+└── README.md                        # Documentación específica del frontend
+```
+
+### Características de UX
+
+- **Streaming SSE progresivo**: la respuesta del LLM aparece token a token, con cursor parpadeante
+- **Mensajes optimistas**: el mensaje del usuario aparece inmediatamente, marcado como "enviando…" hasta confirmación
+- **Indicador "Liz está pensando…"**: 3 puntos animados mientras llega el primer chunk
+- **Badges informativos**: modelo usado, herramientas invocadas, pasos ejecutados, duración, tokens
+- **Welcome state con prompts de ejemplo**: 4 ideas clicables cuando no hay mensajes
+- **Auto-scroll inteligente**: sigue el stream solo si el usuario está al fondo; botón "↓ Último mensaje" si hace scroll up
+- **Sidebar CRUD completo**: listar, crear, seleccionar, eliminar con confirmación en 2 pasos
+- **Sesión activa persistida**: localStorage, sobrevive recargas
+- **Sesión anónima → con sesión**: el primer mensaje en una conversación nueva dispara la creación automática de sesión en el backend, y el sidebar se refresca solo
+- **Selector de proyecto**: dropdown que lista proyectos indexados, opcional "Sin proyecto"
+- **Panel de métricas**: desplegable desde el header, muestra mensajes procesados, duración promedio, modelo más usado, distribución por categoría
+- **Theme toggle**: dark por defecto, claro alternativo, persistencia localStorage
+- **Toasts**: notificaciones efímeras para errores (con auto-dismiss)
+- **Responsive**:
+  - **< md (móvil)**: sidebar como drawer overlay, header compacto (solo iconos), métricas ocultas
+  - **md a lg**: sidebar fijo, header muestra project selector + modelo badge
+  - **≥ lg**: header completo con métricas extendidas
+
+### Integración con backend
+
+- **Proxy Vite** — `/api/*` → `http://localhost:3000`, sin CORS en dev
+- **Tipos espejo** — `types/api.ts` refleja los structs Go (SolicitudChat, RespuestaPipeline, ChunkStream, EstadoPipeline, SesionChat, ModeloOrquestador, InfoHerramienta, etc.)
+- **Endpoints consumidos**:
+  - `/api/v1/health` — status del backend
+  - `/api/v1/chat` (POST, SSE) — pipeline streaming
+  - `/api/v1/chat` (GET) — estado del pipeline + métricas
+  - `/api/v1/chat/sesiones` (GET/POST) — listar/crear sesiones
+  - `/api/v1/chat/sesiones/{id}` (GET/DELETE) — detalle/eliminar
+  - `/api/v1/orquestador/modelos` — lista de modelos NVIDIA
+  - `/api/v1/contexto/proyectos` — lista de proyectos indexados
+
+### Makefile (targets nuevos)
+
+```
+make web-install    # npm install
+make web-dev        # Vite dev server (:5173)
+make web-build      # Build producción → web/dist/
+make web-preview    # Servir build localmente
+make web-typecheck  # Solo tsc --noEmit
+make web-clean      # Limpiar node_modules + dist
+make all            # build backend + frontend
+```
+
+### Optimizaciones
+
+- **Code-splitting**: `react-vendor` y `markdown-vendor` en chunks separados
+- **Lazy-load de CodeBlock**: `react-syntax-highlighter` (~800KB) solo se carga cuando hay code blocks
+- **Memoización**: `Markdown` envuelto en `memo()` para evitar re-renders durante streaming
+- **Tailwind purge**: solo los estilos usados terminan en el bundle CSS (~8KB gzip)
+
+### Build verificado
+
+- `npm run build` OK (1417 módulos)
+- Bundle: 55KB app + 134KB react vendor + 795KB markdown vendor (lazy) = 984KB total / 337KB gzip
+- `npx tsc --noEmit` OK (0 errores)
+- `make all` OK (backend + frontend)
+
+### Bump de versión
+
+- `cmd/liz/main.go`: 0.6.0 → 0.7.0
+- `web/package.json`: 0.7.0
+
+### Próximas fases
+
+| Fase | Issue | Estado |
+|------|-------|--------|
+| 9 — Testing y Docs | [#17](https://github.com/caos1codex-hash/liz-ai-agent/issues/17) | ⏳ |
+| 10 — Release v0.1.0 | [#18](https://github.com/caos1codex-hash/liz-ai-agent/issues/18) | ⏳ |
+
+---
+
 ## [0.7.0] — Fase 7: Pipeline de Chat
 
 > **Liz ahora tiene un cerebro. El pipeline conecta todos los subsistemas en un

@@ -1,15 +1,27 @@
 // Markdown — renderer con soporte GFM (tablas, listas, strikethrough) y code blocks.
 // Componente memoizado para evitar re-renders innecesarios durante streaming.
+// CodeBlock se carga via React.lazy para reducir el bundle inicial.
 
-import { memo } from 'react'
+import { memo, Suspense, lazy } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { CodeBlock } from './CodeBlock'
 import { cn } from '@/lib/utils'
+
+// Lazy load: react-syntax-highlighter es ~800KB, solo se carga cuando hay code blocks.
+const CodeBlock = lazy(() => import('./CodeBlock'))
 
 interface MarkdownProps {
   content: string
   className?: string
+}
+
+// Fallback simple mientras carga el CodeBlock (primer render).
+function CodeFallback({ language }: { language?: string }) {
+  return (
+    <div className="my-3 rounded-lg border border-border bg-surface-muted px-3 py-2 text-xs text-text-muted dark:border-border-dark dark:bg-surface-dark-muted dark:text-text-dark-muted">
+      <span className="font-mono">{language ?? 'txt'}</span> · cargando highlighter…
+    </div>
+  )
 }
 
 export const Markdown = memo(function Markdown({ content, className }: MarkdownProps) {
@@ -40,7 +52,6 @@ export const Markdown = memo(function Markdown({ content, className }: MarkdownP
         remarkPlugins={[remarkGfm]}
         components={{
           // CodeBlock personalizado con syntax highlighting + botón copiar.
-          // react-markdown v9 pasa { inline, className, children } al componente `code`.
           code({ className: codeClassName, children, ...props }) {
             const inline = !codeClassName
             const match = /language-(\w+)/.exec(codeClassName ?? '')
@@ -53,7 +64,11 @@ export const Markdown = memo(function Markdown({ content, className }: MarkdownP
                 </code>
               )
             }
-            return <CodeBlock language={match?.[1]} value={value} />
+            return (
+              <Suspense fallback={<CodeFallback language={match?.[1]} />}>
+                <CodeBlock language={match?.[1]} value={value} />
+              </Suspense>
+            )
           },
           // Pre limpio (el CodeBlock ya tiene su propio contenedor).
           pre({ children }) {

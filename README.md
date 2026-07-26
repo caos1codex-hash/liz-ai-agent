@@ -4,7 +4,7 @@
 > No es un chatbot. No es un asistente de codigo. Es un sistema operativo de IA.
 
 ![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8)
-![Phase](https://img.shields.io/badge/fase-7%20de%2010-orange)
+![Phase](https://img.shields.io/badge/fase-8%20de%2010-orange)
 ![Tests](https://img.shields.io/badge/tests-616%20pasando-brightgreen)
 
 ## Que hace Liz?
@@ -53,7 +53,7 @@ FRONTEND (React) ──SSE──> PIPELINE ──> ORQUESTADOR (8+ modelos NVIDI
 | 5 | Herramientas Base | [#13](https://github.com/caos1codex-hash/liz-ai-agent/issues/13) | ✅ |
 | 6 | Auto-Creacion | [#14](https://github.com/caos1codex-hash/liz-ai-agent/issues/14) | ✅ |
 | 7 | Pipeline de Chat | [#15](https://github.com/caos1codex-hash/liz-ai-agent/issues/15) | End-to-end: mensaje → modelo → herramientas → respuesta | ✅ |
-| 8 | Frontend | [#16](https://github.com/caos1codex-hash/liz-ai-agent/issues/16) | ⏳ |
+| 8 | Frontend | [#16](https://github.com/caos1codex-hash/liz-ai-agent/issues/16) | Interfaz ChatGPT clásico con streaming | ✅ |
 | 9 | Testing y Docs | [#17](https://github.com/caos1codex-hash/liz-ai-agent/issues/17) | ⏳ |
 | 10 | Release v0.1.0 | [#18](https://github.com/caos1codex-hash/liz-ai-agent/issues/18) | ⏳ |
 
@@ -449,6 +449,51 @@ curl http://localhost:3000/api/v1/chat
 # Ver métricas
 curl http://localhost:3000/api/v1/chat/metricas
 ```
+
+## Frontend (Fase 8)
+
+Interfaz React estilo ChatGPT clásico con streaming SSE, sidebar de conversaciones,
+header con métricas en vivo, y soporte responsive (móvil/tablet/desktop).
+
+**Stack:** React 18 + TypeScript + Vite + Tailwind CSS
+
+### Quick start
+
+```bash
+# Terminal 1: backend Go (puerto 3000)
+make dev
+
+# Terminal 2: frontend Vite (puerto 5173, proxy a :3000)
+make web-install   # primera vez
+make web-dev
+# → http://localhost:5173
+```
+
+### Características
+
+- **Chat con streaming SSE** — la respuesta aparece progresivamente, token a token
+- **Sidebar de conversaciones** — lista, crea, selecciona y elimina sesiones
+- **Header informativo** — status del backend, modelo en uso, métricas del pipeline
+- **Selector de proyecto** — elige qué proyecto indexado usar como contexto
+- **Markdown + syntax highlighting** — tablas, listas, code blocks con botón copiar
+- **Tema oscuro/claro** — oscuro por defecto, persistencia en localStorage
+- **Responsive** — drawer en móvil, sidebar fijo en desktop
+- **Toasts** — notificaciones efímeras para errores
+
+### Estructura
+
+```
+web/
+├── src/
+│   ├── components/   # AppShell, ChatWindow, Sidebar, Header, Message, Markdown, ...
+│   ├── hooks/        # useChat, useSesiones, useBackendHealth, useTheme, ...
+│   ├── lib/          # api.ts, sse.ts, endpoints.ts, utils.ts
+│   ├── types/        # api.ts (espejo de structs Go)
+│   └── pages/        # StatusPage (placeholder), ChatPage (default)
+└── README.md         # Documentación específica del frontend
+```
+
+**[Documentación del frontend](web/README.md)**
 
 ## Stack
 

@@ -35,7 +35,7 @@ import (
 )
 
 // versión del binario. Se actualiza en cada release.
-const version = "0.6.0"
+const version = "0.7.0"
 
 // main es el punto de entrada del binario `liz`.
 //

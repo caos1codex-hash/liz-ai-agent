@@ -604,7 +604,8 @@ RESPUESTA:
 
 ## 11. Diseño del Frontend
 
-Interfaz estilo ChatGPT clásico:
+Interfaz estilo ChatGPT clásico, implementada en **Fase 8** con React 18 + TypeScript
++ Vite + Tailwind CSS:
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -629,16 +630,108 @@ Interfaz estilo ChatGPT clásico:
 └──────────────┴───────────────────────────────────────┘
 ```
 
-Características del frontend:
-- Sidebar con historial de conversaciones
-- Streaming de respuestas (texto aparece gradualmente)
-- Markdown renderizado (tablas, listas, código)
-- Bloques de código con syntax highlighting y botón copiar
-- Indicador del modelo usado (badge)
-- Indicador de herramientas usadas durante ejecución
-- Animación "Liz está pensando..."
-- Tema oscuro por defecto, claro alternativo
-- Responsive (desktop + tablet)
+Características del frontend (implementadas en Fase 8):
+- Sidebar con historial de conversaciones (CRUD completo, persistencia localStorage)
+- Streaming de respuestas SSE (texto aparece gradualmente, token a token)
+- Markdown renderizado (tablas, listas, código con GFM)
+- Bloques de código con syntax highlighting y botón copiar (lazy-loaded)
+- Indicador del modelo usado (badge en cada mensaje + header)
+- Indicador de herramientas usadas durante ejecución (badges por mensaje)
+- Animación "Liz está pensando..." (3 puntos animados en placeholder)
+- Tema oscuro por defecto, claro alternativo (toggle persistente)
+- Responsive completo: drawer en móvil, sidebar fijo en desktop
+- Selector de proyecto de contexto (dropdown con proyectos indexados)
+- Panel de métricas desplegable (mensajes procesados, modelo más usado, categorías)
+- Toasts para errores globales (auto-dismiss)
+- Welcome state con 4 prompts de ejemplo clicables
+- Auto-scroll inteligente (sigue el stream solo si el usuario está al fondo)
+- Mensajes optimistas del usuario (aparecen inmediatamente, marcados "enviando…")
+- Badges de métricas por mensaje (tokens, pasos, duración, herramientas)
+
+### Stack técnico
+
+| Capa | Tecnología |
+|------|-----------|
+| Framework | React 18 |
+| Lenguaje | TypeScript estricto |
+| Bundler | Vite 5 |
+| Estilos | Tailwind CSS 3 + plugin Typography |
+| Markdown | react-markdown + remark-gfm |
+| Code highlight | react-syntax-highlighter (Prism, lazy-loaded) |
+| ClassNames | clsx |
+| SSE | Parser propio sobre fetch ReadableStream |
+
+### Estructura del código
+
+```
+web/
+├── src/
+│   ├── components/   # 18 componentes reutilizables
+│   ├── hooks/        # 8 custom hooks (useChat, useSesiones, useBackendHealth, ...)
+│   ├── lib/          # api.ts, sse.ts, endpoints.ts, utils.ts
+│   ├── types/api.ts  # Espejo de structs Go del backend
+│   └── styles/       # globals.css con Tailwind + scrollbar fino
+├── vite.config.ts    # Proxy /api → localhost:3000
+└── Makefile          # Integrado en Makefile raíz (web-dev, web-build, ...)
+```
+
+### Flujo SSE (streaming)
+
+```
+1. Usuario envía mensaje
+   ↓
+2. useChat() crea mensaje optimista + placeholder asistente
+   ↓
+3. streamChat() hace POST /api/v1/chat con stream=true, Accept: text/event-stream
+   ↓
+4. Backend responde con chunks SSE:
+   data: {"tipo":"estado","contenido":"Iniciando pipeline..."}\n\n
+   data: {"tipo":"herramienta","contenido":"buscador"}\n\n
+   data: {"tipo":"texto","contenido":"Encontré 47 archivos..."}\n\n
+   data: {"tipo":"completado","sesion_id":"...","modelo":"...","tokens":1234}\n\n
+   ↓
+5. onChunk() va acumulando texto y actualizando el mensaje asistente
+   onFinal() marca el mensaje como completado con métricas
+   ↓
+6. Sidebar refresca solo (evento custom 'liz:refrescar-sesiones')
+```
+
+### Integración con el backend
+
+El frontend consume los endpoints ya implementados en fases anteriores:
+
+| Endpoint | Fase | Uso en frontend |
+|----------|------|-----------------|
+| `GET /api/v1/health` | 1 | StatusDot (poll cada 30s) |
+| `POST /api/v1/chat` (SSE) | 7 | Streaming de respuestas |
+| `GET /api/v1/chat` | 7 | Métricas del pipeline (poll 60s) |
+| `GET/POST /api/v1/chat/sesiones` | 7 | Sidebar CRUD |
+| `GET/DELETE /api/v1/chat/sesiones/{id}` | 7 | Seleccionar/eliminar |
+| `GET /api/v1/orquestador/modelos` | 4 | Badge de modelos disponibles |
+| `GET /api/v1/contexto/proyectos` | 3 | Selector de proyecto |
+
+### Dev workflow
+
+```bash
+# Terminal 1: backend
+make dev   # go run ./cmd/liz → http://localhost:3000
+
+# Terminal 2: frontend
+make web-install   # primera vez
+make web-dev       # vite → http://localhost:5173 (proxy a :3000)
+```
+
+Vite hace proxy de `/api/*` al backend, así que no hay CORS en dev. En
+producción, el build se sirve desde el mismo origen que el backend (o se
+configura CORS explícito).
+
+### Optimizaciones de bundle
+
+- **Code-splitting**: chunks separados para `react-vendor` y `markdown-vendor`
+- **Lazy-load**: `react-syntax-highlighter` (~800KB) solo se carga cuando hay code blocks
+- **Memoización**: `Markdown` envuelto en `memo()` para evitar re-renders durante streaming
+- **Tailwind purge**: CSS final ~8KB gzip
+- **Bundle total**: 984KB sin comprimir, 337KB gzip (acceptable para una SPA de agente)
 
 ---
 
@@ -652,8 +745,8 @@ Características del frontend:
 | 4 | Orquestador NVIDIA | #12 | API NVIDIA conectada, 8+ modelos, selección inteligente | ✅ |
 | 5 | Herramientas Base | #13 | 7 herramientas integradas funcionando | ✅ |
 | 6 | Auto-Creación | #14 | Liz se programa herramientas que no tiene | ✅ |
-| 7 | Pipeline de Chat | #15 | End-to-end: mensaje → modelo → herramientas → respuesta | ⏳ |
-| 8 | Frontend | #16 | Interfaz ChatGPT clásico con streaming | ⏳ |
+| 7 | Pipeline de Chat | #15 | End-to-end: mensaje → modelo → herramientas → respuesta | ✅ |
+| 8 | Frontend | #16 | Interfaz ChatGPT clásico con streaming | ✅ |
 | 9 | Testing y Docs | #17 | Tests, seguridad, documentación completa | ⏳ |
 | 10 | Release v0.1.0 | #18 | Binarios, instalador, release en GitHub | ⏳ |
 

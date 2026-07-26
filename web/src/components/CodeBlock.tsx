@@ -1,5 +1,6 @@
 // CodeBlock — bloque de código con syntax highlighting + botón copiar.
-// Se usa como renderer para react-markdown (component prop `code`).
+// Lazy-loaded: react-syntax-highlighter es pesado (795KB), solo se carga cuando
+// el primer mensaje contiene un code block.
 
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -65,3 +66,6 @@ export function CodeBlock({ language, value }: CodeBlockProps) {
     </div>
   )
 }
+
+// Default export para permitir React.lazy() en Markdown.tsx
+export default CodeBlock
