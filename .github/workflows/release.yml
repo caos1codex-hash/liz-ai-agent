@@ -115,11 +115,25 @@ jobs:
       - name: Extract version
         id: version
         run: |
-          TAG="${GITHUB_REF##*/}"
-          [[ -z "$TAG" || "$TAG" == "refs/tags/" ]] && TAG="${{ inputs.tag }}"
+          # Detectar TAG según el evento que disparó el workflow
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF##*/}"
+          fi
+
+          # Validar que TAG tenga formato v*.*.*
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::TAG inválido: '$TAG' (debe ser v*.*.*)"
+            echo "GITHUB_REF=$GITHUB_REF"
+            echo "github.event_name=${{ github.event_name }}"
+            echo "inputs.tag=${{ inputs.tag }}"
+            exit 1
+          fi
+
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "version=${TAG#v}" >> $GITHUB_OUTPUT
-          echo "Tag: $TAG"
+          echo "Tag detectado: $TAG (version: ${TAG#v})"
 
       - name: Build binary
         env:
@@ -172,8 +186,12 @@ jobs:
       - name: Extract version
         id: version
         run: |
-          TAG="${GITHUB_REF##*/}"
-          [[ -z "$TAG" || "$TAG" == "refs/tags/" ]] && TAG="${{ inputs.tag }}"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF##*/}"
+          fi
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]] || { echo "::error::TAG inválido: $TAG"; exit 1; }
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "version=${TAG#v}" >> $GITHUB_OUTPUT
 
@@ -250,8 +268,12 @@ jobs:
       - name: Extract version
         id: version
         run: |
-          TAG="${GITHUB_REF##*/}"
-          [[ -z "$TAG" || "$TAG" == "refs/tags/" ]] && TAG="${{ inputs.tag }}"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF##*/}"
+          fi
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]] || { echo "::error::TAG inválido: $TAG"; exit 1; }
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "version=${TAG#v}" >> $GITHUB_OUTPUT
           echo "image_tags=$TAG,latest" >> $GITHUB_OUTPUT
@@ -307,8 +329,12 @@ jobs:
       - name: Extract version
         id: version
         run: |
-          TAG="${GITHUB_REF##*/}"
-          [[ -z "$TAG" || "$TAG" == "refs/tags/" ]] && TAG="${{ inputs.tag }}"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF##*/}"
+          fi
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]] || { echo "::error::TAG inválido: $TAG"; exit 1; }
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "version=${TAG#v}" >> $GITHUB_OUTPUT
 
