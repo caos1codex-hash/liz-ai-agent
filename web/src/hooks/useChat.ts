@@ -31,6 +31,8 @@ interface UseChatOptions {
   proyecto?: string
   // Hook para notificar cuando se completa un mensaje (ej: guardar en historial).
   onMensajeCompletado?: (mensaje: UIMensaje) => void
+  // Hook para notificar cuando el backend asigna un sesion_id (modo anónimo → con sesión).
+  onSesionAsignada?: (sesionId: string) => void
 }
 
 interface UseChatReturn {
@@ -46,7 +48,7 @@ interface UseChatReturn {
 }
 
 export function useChat(opts: UseChatOptions = {}): UseChatReturn {
-  const { sesionId: initialSesionId, usuarioId = 'usuario_default', proyecto } = opts
+  const { sesionId: initialSesionId, usuarioId = 'usuario_default', proyecto, onSesionAsignada } = opts
 
   const [mensajes, setMensajes] = useState<UIMensaje[]>([])
   const [enviando, setEnviando] = useState(false)
@@ -210,6 +212,8 @@ export function useChat(opts: UseChatOptions = {}): UseChatReturn {
             })
             if (resumen.sesion_id && !sesionId) {
               setSesionId(resumen.sesion_id)
+              // Notificar al padre para que el sidebar refresque.
+              onSesionAsignada?.(resumen.sesion_id)
             }
           },
           onError: (err) => {
@@ -254,7 +258,7 @@ export function useChat(opts: UseChatOptions = {}): UseChatReturn {
         asistenteMsgIdRef.current = null
       }
     },
-    [enviando, proyecto, sesionId, usuarioId, opts],
+    [enviando, proyecto, sesionId, usuarioId, onSesionAsignada],
   )
 
   const limpiar = useCallback(() => {
