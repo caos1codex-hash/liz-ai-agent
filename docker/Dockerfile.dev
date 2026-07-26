@@ -1,0 +1,45 @@
+# Liz AI Agent — Docker para desarrollo
+# ============================================================================
+# Imagen con dependencias completas (CGO + OpenGL + Go + herramientas dev)
+# para compilar el binario desktop completo dentro de Docker.
+#
+# Útil para desarrolladores en macOS/Windows que quieren compilar para Linux.
+#
+# Build:
+#   docker build -f docker/Dockerfile.dev -t liz-dev .
+#   docker run --rm -it -v $(pwd):/src -v ~/go:/go liz-dev bash
+#   # dentro del contenedor:
+#   cd /src && make build
+# ============================================================================
+
+FROM golang:1.22-bookworm
+
+# Instalar dependencias OpenGL dev para Fyne
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1-mesa-dev \
+    xorg-dev \
+    libxrandr-dev \
+    libxinerama-dev \
+    libxcursor-dev \
+    libxi-dev \
+    libxxf86vm-dev \
+    libwayland-dev \
+    libxkbcommon-dev \
+    libegl-dev \
+    libglx-dev \
+    gcc \
+    pkg-config \
+    git \
+    curl \
+    vim \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+
+# Cachear dependencias
+COPY go.mod go.sum ./
+RUN go mod download
+
+# El código se monta como volumen en runtime
+CMD ["bash"]

@@ -1,0 +1,85 @@
+# ============================================================================
+# Liz AI Agent — docker-compose.yml
+# ============================================================================
+# Fase 10 — Release v0.1.0
+#
+# Levanta Liz en modo servidor headless con volumen persistente.
+#
+# Uso:
+#   NVIDIA_API_KEY=tu_key docker compose up -d
+#   docker compose logs -f liz
+#   docker compose down
+#
+# Build local:
+#   docker compose up -d --build
+# ============================================================================
+
+services:
+  liz:
+    # Imagen publicada en ghcr.io (cuando se habilite CI) o build local
+    image: ghcr.io/caos1codex-hash/liz-ai-agent:latest
+    # Para construir desde el código fuente local, descomenta:
+    # build:
+    #   context: ..
+    #   dockerfile: docker/Dockerfile
+
+    container_name: liz
+    restart: unless-stopped
+
+    # Modo servidor headless (sin GUI)
+    command: ["--headless"]
+
+    ports:
+      - "3000:3000"   # API HTTP + SSE
+
+    environment:
+      # API key NVIDIA para el orquestador multi-modelo
+      # Si no se establece, los endpoints /api/v1/orquestador/* responden 503
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY:-}
+      # Override de configuración vía env vars (opcional)
+      - LIZ_SERVIDOR_HOST=0.0.0.0
+      - LIZ_SERVIDOR_PUERTO=3000
+      # TZ para timestamps correctos en logs
+      - TZ=${TZ:-America/Asuncion}
+
+    volumes:
+      # Persistencia de config, memoria, herramientas auto-creadas, índices
+      - liz-data:/home/liz/.liz
+      # Si tienes una config.yaml local, montala así (override):
+      # - ./config.yaml:/home/liz/.liz/config.yaml:ro
+
+    # Healthcheck usa el endpoint HTTP (curl no disponible en distroless,
+    # pero el binario --version es suficiente como liveness probe)
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/liz-server", "--version"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+    # Recursos: Liz es ligera, pero el orquestador NVIDIA puede ser exigente
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+    # Logging: json-file con rotación (evita que los logs crezcan indefinidamente)
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Seguridad: read-only rootfs no es posible porque Liz escribe en ~/.liz,
+    # pero añadimos no-new-privileges
+    security_opt:
+      - no-new-privileges:true
+
+# Volumen nombrado para datos persistentes
+volumes:
+  liz-data:
+    driver: local

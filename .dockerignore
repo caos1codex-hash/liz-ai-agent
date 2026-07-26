@@ -1,0 +1,51 @@
+# Liz AI Agent — .dockerignore
+# Fase 10 — Release v0.1.0
+# Reduce el contexto de build de Docker excluyendo archivos innecesarios.
+
+# Binarios y artefactos
+bin/
+dist/
+*.out
+*.exe
+*.test
+
+# Git
+.git/
+.gitignore
+
+# CI/CD
+.github/
+
+# Documentación (no necesaria en imagen runtime)
+docs/
+
+# Configuración local
+configs/liz.yaml
+~/.liz/
+
+# Scripts que no se usan en build
+scripts/
+
+# Packaging
+packaging/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Test coverage
+coverage.out
+*.cover
+
+# Docker compose override
+docker-compose.override.yml
