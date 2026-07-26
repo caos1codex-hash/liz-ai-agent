@@ -61,10 +61,7 @@ cp README.md "$RPM_ROOT/SOURCES/liz-${VERSION}/" 2>/dev/null || true
 cp CHANGELOG.md "$RPM_ROOT/SOURCES/liz-${VERSION}/" 2>/dev/null || true
 cp LICENSE "$RPM_ROOT/SOURCES/liz-${VERSION}/" 2>/dev/null || true
 
-# Crear tarball fuente
-tar -C "$RPM_ROOT/SOURCES" -czf "$RPM_ROOT/SOURCES/liz-${VERSION}.tar.gz" "liz-${VERSION}"
-
-# Crear .desktop entry
+# Crear .desktop entry ANTES del tarball para que se incluya
 cat > "$RPM_ROOT/SOURCES/liz-${VERSION}/liz.desktop" <<EOF
 [Desktop Entry]
 Type=Application
@@ -77,6 +74,9 @@ Categories=Development;System;Utility;
 StartupNotify=true
 Keywords=ai;agent;llm;nvidia;
 EOF
+
+# Crear tarball fuente (incluye el .desktop)
+tar -C "$RPM_ROOT/SOURCES" -czf "$RPM_ROOT/SOURCES/liz-${VERSION}.tar.gz" "liz-${VERSION}"
 
 # --- SPEC file ---
 cat > "$RPM_ROOT/SPECS/liz.spec" <<EOF
