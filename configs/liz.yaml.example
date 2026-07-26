@@ -1,65 +1,168 @@
 # ============================================
 # Configuracion de Liz AI Agent
 # ============================================
-# Copia este archivo a liz.yaml y configura tus valores
-# NUNCA compartas este archivo con API keys reales
+# Copia este archivo a ~/.liz/config.yaml y configura tus valores.
+#
+# NUNCA compartas este archivo con API keys reales.
+# Si quieres usar la API key bundled por defecto, deja api_key: "" y
+# Liz aplicará la default (ver internal/nucleo/config/config.go).
+#
+# Schema
+# ------
+# El struct Go que parsea este archivo está en:
+#   internal/nucleo/config/config.go  ->  type Configuracion struct
+#
+# Notas importantes:
+#   - `modelos[].nombre` se envía tal cual como `model` en el body del
+#     request a la API de NVIDIA. DEBE ser un ID NVIDIA válido
+#     (ej: "meta/llama-3.1-70b-instruct"), no un nombre para humanos.
+#   - `modelos[].url` es la base del endpoint (sin /chat/completions).
+#     El cliente NVIDIA concatena /chat/completions automáticamente.
+#   - Variables de entorno reconocidas (override al YAML):
+#       LIZ_PUERTO, LIZ_HOST, LIZ_NOMBRE, LIZ_VERSION,
+#       LIZ_DIRECTORIO_BASE, LIZ_NIVEL_LOG,
+#       NVIDIA_API_KEY (se aplica a todos los modelos con proveedor=nvidia),
+#       OPENAI_API_KEY  (idem para proveedor=openai)
+#   - Prioridad: env var > YAML > defaults del código.
 
 liz:
-  version: "0.3.0"
-  
-  servidor:
-    puerto: 3000
-    host: "localhost"
-  
-  nvidia:
-    # Tu API key de NVIDIA
-    api_key: "nvapi-TU_API_KEY_AQUI"
-    endpoint: "https://integrate.api.nvidia.com/v1"
-    modelos:
-      - id: "meta/llama-3.1-405b-instruct"
-        nombre: "Llama 3.1 405B"
-        tipo: ["razonamiento", "complejo"]
-        velocidad: "lenta"
-        prioridad: 1
-      - id: "meta/llama-3.1-70b-instruct"
-        nombre: "Llama 3.1 70B"
-        tipo: ["codigo", "general"]
-        velocidad: "media"
-        prioridad: 2
-      - id: "mistralai/mixtral-8x22b-instruct-v0.1"
-        nombre: "Mixtral 8x22B"
-        tipo: ["analisis", "rapido"]
-        velocidad: "alta"
-        prioridad: 3
-      - id: "nvidia/nemotron-4-340b-instruct"
-        nombre: "Nemotron 340B"
-        tipo: ["creatividad", "razonamiento"]
-        velocidad: "media"
-        prioridad: 4
-      - id: "google/gemma-2-27b-it"
-        nombre: "Gemma 2 27B"
-        tipo: ["general", "eficiente"]
-        velocidad: "alta"
-        prioridad: 5
-      - id: "microsoft/phi-3-medium-128k-instruct"
-        nombre: "Phi-3 Medium"
-        tipo: ["contexto_largo", "resumen"]
-        velocidad: "media"
-        prioridad: 6
-      - id: "meta/codellama-70b-instruct"
-        nombre: "CodeLlama 70B"
-        tipo: ["codigo", "especializado"]
-        velocidad: "media"
-        prioridad: 7
-      - id: "nvidia/llama-3.1-nemotron-70b-instruct"
-        nombre: "Nemotron 70B"
-        tipo: ["general", "potente"]
-        velocidad: "media"
-        prioridad: 8
-  
-  directorio_trabajo: "~"
-  tema: "oscuro"
-  
-  permisos:
-    solicitar_al_iniciar: true
-    recordar_entre_sesiones: false
+  # --- Identidad del agente ---
+  nombre: "Liz"
+  version: "0.1.0"
+
+  # --- Servidor HTTP ---
+  # El servidor escucha en host:puerto. Para Docker, usar host: "0.0.0.0".
+  host: "0.0.0.0"
+  puerto: 3000
+
+  # --- Directorio base de runtime ---
+  # Donde se guardan logs, memoria, permisos, herramientas auto-creadas, etc.
+  # Se expande ~ al home del usuario.
+  directorio_base: "~/.liz"
+
+  # --- Modelos de IA ---
+  # El orquestador (Fase 4) solo soporta el endpoint de NVIDIA
+  # (integrate.api.nvidia.com/v1, formato OpenAI-compatible).
+  # El primer modelo con habilitado: true y api_key configurada es el principal.
+  modelos:
+    - nombre: "meta/llama-3.1-70b-instruct"
+      proveedor: "nvidia"
+      api_key: ""                       #vacío = usar NVIDIA_API_KEY env var o la default bundled
+      url: "https://integrate.api.nvidia.com/v1"
+      temperatura: 0.7
+      top_p: 0.9
+      max_tokens: 4096
+      rol: "principal"                  # principal | reserva | especializado
+      habilitado: true
+
+    - nombre: "meta/llama-3.1-405b-instruct"
+      proveedor: "nvidia"
+      api_key: ""
+      url: "https://integrate.api.nvidia.com/v1"
+      temperatura: 0.7
+      top_p: 0.9
+      max_tokens: 8192
+      rol: "reserva"
+      habilitado: true
+
+    - nombre: "mistralai/mixtral-8x22b-instruct-v0.1"
+      proveedor: "nvidia"
+      api_key: ""
+      url: "https://integrate.api.nvidia.com/v1"
+      temperatura: 0.7
+      top_p: 0.9
+      max_tokens: 8192
+      rol: "reserva"
+      habilitado: true
+
+    - nombre: "nvidia/llama-3.1-nemotron-70b-instruct"
+      proveedor: "nvidia"
+      api_key: ""
+      url: "https://integrate.api.nvidia.com/v1"
+      temperatura: 0.7
+      top_p: 0.9
+      max_tokens: 8192
+      rol: "reserva"
+      habilitado: true
+
+    - nombre: "meta/codellama-70b-instruct"
+      proveedor: "nvidia"
+      api_key: ""
+      url: "https://integrate.api.nvidia.com/v1"
+      temperatura: 0.7
+      top_p: 0.9
+      max_tokens: 8192
+      rol: "especializado"
+      habilitado: true
+
+    - nombre: "google/gemma-2-27b-it"
+      proveedor: "nvidia"
+      api_key: ""
+      url: "https://integrate.api.nvidia.com/v1"
+      temperatura: 0.7
+      top_p: 0.9
+      max_tokens: 8192
+      rol: "especializado"
+      habilitado: true
+
+    - nombre: "microsoft/phi-3-medium-128k-instruct"
+      proveedor: "nvidia"
+      api_key: ""
+      url: "https://integrate.api.nvidia.com/v1"
+      temperatura: 0.7
+      top_p: 0.9
+      max_tokens: 8192
+      rol: "especializado"
+      habilitado: true
+
+    - nombre: "nvidia/nemotron-4-340b-instruct"
+      proveedor: "nvidia"
+      api_key: ""
+      url: "https://integrate.api.nvidia.com/v1"
+      temperatura: 0.7
+      top_p: 0.9
+      max_tokens: 8192
+      rol: "especializado"
+      habilitado: true
+
+  # --- Herramientas integradas ---
+  # Estas se registran automáticamente al iniciar (Fase 5).
+  # Listarlas aquí sirve para deshabilitar alguna específica.
+  herramientas:
+    - { nombre: "terminal",           tipo: "ejecutable", habilitado: true, timeout: 30 }
+    - { nombre: "navegador_archivos", tipo: "ejecutable", habilitado: true, timeout: 30 }
+    - { nombre: "buscador",           tipo: "ejecutable", habilitado: true, timeout: 60 }
+    - { nombre: "editor",             tipo: "ejecutable", habilitado: true, timeout: 30 }
+    - { nombre: "procesos",           tipo: "ejecutable", habilitado: true, timeout: 15 }
+    - { nombre: "monitor",            tipo: "ejecutable", habilitado: true, timeout: 10 }
+    - { nombre: "instalador",         tipo: "ejecutable", habilitado: true, timeout: 300 }
+
+  # --- Seguridad ---
+  # D-006: "Permisos Una Vez" — todos los permisos se conceden al iniciar.
+  # Los flags de seguridad controlan límites de rate y sandboxing.
+  seguridad:
+    sandbox_habilitado: false
+    max_peticiones_min: 60
+    max_tokens_sesion: 100000
+    permitir_red: true
+    permitir_sistema: true
+
+  # --- Logging ---
+  # Niveles: debug | info | advertencia | error | silencio
+  logging:
+    nivel: "info"
+    archivo: "~/.liz/logs/liz.log"
+    stdout: true
+    rotacion: true
+    max_mb: 50
+    max_archivos: 5
+
+  # --- Sistema de contexto (Fase 3) ---
+  # Estrategias: bajo_demanda | eager | hibrido
+  contexto:
+    estrategia: "bajo_demanda"
+    max_archivos: 50
+    max_lineas: 5000
+    tamano_contexto: 128000
+    resumen_auto: true
+    catalogo_habilitado: true
