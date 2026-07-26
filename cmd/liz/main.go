@@ -191,7 +191,8 @@ func main() {
 			log.Error("Error al registrar herramienta %s: %v", h.nombre, err)
 			continue
 		}
-		log.Info("Herramienta registrada: %s", h.nombre)
+		// No loguear éxito aquí: el propio catálogo ya lo hace via ConLog
+		// (issue #24). Antes esto duplicaba cada línea en el log.
 	}
 	log.Info("Catálogo de herramientas: %d registradas", catalogo.Tamaño())
 
