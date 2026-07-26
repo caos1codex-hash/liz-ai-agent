@@ -44,10 +44,10 @@ func (c *Clasificador) Clasificar(ctx context.Context, mensaje string, proyecto 
 	// 3. Fallback: usar resultado heurístico o default
 	if result == nil {
 		return &ResultadoClasificacion{
-			Categoria:   CategoriaConversacion,
+			Categoria:    CategoriaConversacion,
 			Confianza:    0.5,
 			Razonamiento: "No se pudo determinar la categoría con confianza. Tratado como conversación.",
-			Prioridad:   3,
+			Prioridad:    3,
 		}, nil
 	}
 	return result, nil
@@ -59,9 +59,9 @@ func (c *Clasificador) clasificarPorHeuristica(mensaje, proyecto string) *Result
 
 	// Patrones por categoría con orden de prioridad (más específico primero)
 	reglas := []struct {
-		categoria       CategoriaTarea
-		palabras        []string
-		confianza       float64
+		categoria        CategoriaTarea
+		palabras         []string
+		confianza        float64
 		requiereContexto bool
 	}{
 		{CategoriaAutoCreacion, []string{"crea una herramienta", "crea un programa", "programa una herramienta", "necesitas crear", "no tienes la herramienta", "crea algo que", "inventa una herramienta"}, 0.85, false},
@@ -81,11 +81,11 @@ func (c *Clasificador) clasificarPorHeuristica(mensaje, proyecto string) *Result
 	for _, regla := range reglas {
 		if tienePalabrasClave(msg, regla.palabras) {
 			return &ResultadoClasificacion{
-				Categoria:       regla.categoria,
+				Categoria:        regla.categoria,
 				Confianza:        regla.confianza,
 				Razonamiento:     fmt.Sprintf("Heurística: se detectaron palabras clave de la categoría '%s'", regla.categoria),
 				NecesitaContexto: regla.requiereContexto,
-				Prioridad:       c.prioridadDesdeCategoria(regla.categoria),
+				Prioridad:        c.prioridadDesdeCategoria(regla.categoria),
 			}
 		}
 	}
@@ -93,11 +93,11 @@ func (c *Clasificador) clasificarPorHeuristica(mensaje, proyecto string) *Result
 	// Verificar si hay un proyecto activo — sesgo hacia código
 	if proyecto != "" {
 		return &ResultadoClasificacion{
-			Categoria:       CategoriaCodigo,
+			Categoria:        CategoriaCodigo,
 			Confianza:        0.6,
-			Razonamiento:    "Hay un proyecto activo y no se detectó otra categoría clara; se asume tarea de código.",
+			Razonamiento:     "Hay un proyecto activo y no se detectó otra categoría clara; se asume tarea de código.",
 			NecesitaContexto: true,
-			Prioridad:       2,
+			Prioridad:        2,
 		}
 	}
 

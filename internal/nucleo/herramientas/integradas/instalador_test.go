@@ -51,11 +51,11 @@ func TestInstalador_InstalarDryRun(t *testing.T) {
 		t.Skip("go no instalado")
 	}
 	res, _ := i.Ejecutar(context.Background(), map[string]interface{}{
-		"operacion":       "instalar",
-		"paquetes":        []string{"github.com/example/pkg@latest"},
-		"gestor":          "go",
-		"solo_verificar":  true,
-		"sudo":            false,
+		"operacion":      "instalar",
+		"paquetes":       []string{"github.com/example/pkg@latest"},
+		"gestor":         "go",
+		"solo_verificar": true,
+		"sudo":           false,
 	})
 	if !res.Exito {
 		t.Fatalf("dry-run falló: %+v", res)
@@ -78,11 +78,11 @@ func TestInstalador_DesinstalarDryRun(t *testing.T) {
 		t.Skip("npm no instalado")
 	}
 	res, _ := i.Ejecutar(context.Background(), map[string]interface{}{
-		"operacion":       "desinstalar",
-		"paquetes":        []string{"paquete-test"},
-		"gestor":          "npm",
-		"solo_verificar":  true,
-		"sudo":            false,
+		"operacion":      "desinstalar",
+		"paquetes":       []string{"paquete-test"},
+		"gestor":         "npm",
+		"solo_verificar": true,
+		"sudo":           false,
 	})
 	if !res.Exito {
 		t.Fatalf("dry-run falló: %+v", res)
@@ -159,15 +159,15 @@ func TestInstalador_AutodetectarGestor(t *testing.T) {
 
 func TestPrecisaSudo(t *testing.T) {
 	casos := map[string]bool{
-		"apt":       true,
-		"apt-get":   true,
-		"dnf":       true,
-		"pacman":    true,
-		"brew":      false,
-		"pip":       false,
-		"npm":       false,
-		"go":        false,
-		"cargo":     false,
+		"apt":     true,
+		"apt-get": true,
+		"dnf":     true,
+		"pacman":  true,
+		"brew":    false,
+		"pip":     false,
+		"npm":     false,
+		"go":      false,
+		"cargo":   false,
 	}
 	for g, esperado := range casos {
 		if obt := precisaSudo(g); obt != esperado {

@@ -75,17 +75,19 @@ type BodyAutoCrear struct {
 // handlerAutoCrear ejecuta el flujo completo de auto-creación.
 //
 // POST /api/v1/herramientas/auto-crear
-// Body: {
-//   "descripcion": "Comprime archivos CSV y envíalos por SFTP",
-//   "forzar_nombre": "compresor_csv",  // opcional, salta detector
-//   "forzar_spec": { ... }              // opcional, salta detector
-// }
+//
+//	Body: {
+//	  "descripcion": "Comprime archivos CSV y envíalos por SFTP",
+//	  "forzar_nombre": "compresor_csv",  // opcional, salta detector
+//	  "forzar_spec": { ... }              // opcional, salta detector
+//	}
 //
 // Respuesta:
-//   201 Created — herramienta creada exitosamente
-//   400 Bad Request — body inválido o sin descripción
-//   422 Unprocessable Entity — alguna etapa falló (compilación, carga, etc.)
-//   503 Service Unavailable — gestor no inicializado
+//
+//	201 Created — herramienta creada exitosamente
+//	400 Bad Request — body inválido o sin descripción
+//	422 Unprocessable Entity — alguna etapa falló (compilación, carga, etc.)
+//	503 Service Unavailable — gestor no inicializado
 func (s *Servidor) handlerAutoCrear(w http.ResponseWriter, r *http.Request) {
 	if !s.requiereAutoGestor(w) {
 		return
@@ -371,7 +373,7 @@ func (s *Servidor) handlerAutoCreadasProbar(w http.ResponseWriter, r *http.Reque
 	}
 
 	s.responderJSON(w, http.StatusOK, RespuestaAPI{
-		Exito:     res.Exito,
+		Exito: res.Exito,
 		Mensaje: func() string {
 			if res.Exito {
 				return "herramienta ejecutada exitosamente"

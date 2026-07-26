@@ -21,16 +21,16 @@ import (
 // Los fragmentos NUNCA se editan, solo se agregan nuevos.
 // Esto es por decisión de diseño: el contexto crece acumulativamente.
 type Fragmento struct {
-	ID        string `json:"id"`         // hash SHA256 del contenido
-	Ruta      string `json:"ruta"`       // ruta relativa del archivo origen
-	LineaIni  int    `json:"linea_ini"`  // línea de inicio (1-indexed)
-	LineaFin  int    `json:"linea_fin"`  // línea de fin (inclusive)
-	Tipo      string `json:"tipo"`       // "funcion", "estructura", "import", "config", "completo", etc.
+	ID        string `json:"id"`        // hash SHA256 del contenido
+	Ruta      string `json:"ruta"`      // ruta relativa del archivo origen
+	LineaIni  int    `json:"linea_ini"` // línea de inicio (1-indexed)
+	LineaFin  int    `json:"linea_fin"` // línea de fin (inclusive)
+	Tipo      string `json:"tipo"`      // "funcion", "estructura", "import", "config", "completo", etc.
 	Lenguaje  string `json:"lenguaje"`
-	Contenido string `json:"contenido"`  // el texto del fragmento
-	Resumen   string `json:"resumen"`    // resumen de una línea del fragmento
-	Timestamp string `json:"timestamp"`  // cuándo se creó
-	Tamanio   int    `json:"tamanio"`    // bytes del contenido
+	Contenido string `json:"contenido"` // el texto del fragmento
+	Resumen   string `json:"resumen"`   // resumen de una línea del fragmento
+	Timestamp string `json:"timestamp"` // cuándo se creó
+	Tamanio   int    `json:"tamanio"`   // bytes del contenido
 }
 
 // MetadataArchivo contiene la metadata de fragmentos de un archivo.
@@ -667,16 +667,16 @@ func fragmentarRust(contenido string) []fragmentoInterno {
 	}
 
 	palabrasClave := map[string]string{
-		"fn ":         "funcion",
-		"pub fn ":     "funcion",
+		"fn ":            "funcion",
+		"pub fn ":        "funcion",
 		"pub(crate) fn ": "funcion",
-		"struct ":     "estructura",
-		"pub struct ": "estructura",
-		"enum ":       "estructura",
-		"pub enum ":   "estructura",
-		"trait ":      "estructura",
-		"pub trait ":  "estructura",
-		"impl ":       "impl",
+		"struct ":        "estructura",
+		"pub struct ":    "estructura",
+		"enum ":          "estructura",
+		"pub enum ":      "estructura",
+		"trait ":         "estructura",
+		"pub trait ":     "estructura",
+		"impl ":          "impl",
 	}
 
 	for i, linea := range lineas {

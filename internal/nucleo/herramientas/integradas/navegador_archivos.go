@@ -92,43 +92,43 @@ func (n *NavegadorArchivos) Parametros() []herramientas.Parametro {
 
 // ResultadoNavegador es el Datos de NavegadorArchivos.
 type ResultadoNavegador struct {
-	Operacion  string         `json:"operacion"`
-	Ruta       string         `json:"ruta"`
-	Entradas   []EntradaArchivo `json:"entradas,omitempty"`
-	Stat       *InfoArchivo   `json:"stat,omitempty"`
-	Existe     bool           `json:"existe,omitempty"`
-	Total      int            `json:"total,omitempty"`
-	Truncado   bool           `json:"truncado,omitempty"`
+	Operacion string           `json:"operacion"`
+	Ruta      string           `json:"ruta"`
+	Entradas  []EntradaArchivo `json:"entradas,omitempty"`
+	Stat      *InfoArchivo     `json:"stat,omitempty"`
+	Existe    bool             `json:"existe,omitempty"`
+	Total     int              `json:"total,omitempty"`
+	Truncado  bool             `json:"truncado,omitempty"`
 }
 
 // EntradaArchivo es la vista compacta de un archivo/directorio en una lista.
 type EntradaArchivo struct {
-	Nombre    string `json:"nombre"`
-	Ruta      string `json:"ruta"`
-	Tipo      string `json:"tipo"` // "archivo", "directorio", "symlink", "otro"
-	Tamano    int64  `json:"tamano"`
+	Nombre     string `json:"nombre"`
+	Ruta       string `json:"ruta"`
+	Tipo       string `json:"tipo"` // "archivo", "directorio", "symlink", "otro"
+	Tamano     int64  `json:"tamano"`
 	Modificado string `json:"modificado"`
-	Permiso   string `json:"permiso"`
+	Permiso    string `json:"permiso"`
 }
 
 // InfoArchivo es la información detallada de un archivo (stat completo).
 type InfoArchivo struct {
-	Nombre      string `json:"nombre"`
-	Ruta        string `json:"ruta"`
+	Nombre       string `json:"nombre"`
+	Ruta         string `json:"ruta"`
 	RutaAbsoluta string `json:"ruta_absoluta"`
-	Tipo        string `json:"tipo"`
-	Tamano      int64  `json:"tamano"`
-	Modificado  string `json:"modificado"`
-	Creado      string `json:"creado,omitempty"`
-	Accedido    string `json:"accedido,omitempty"`
-	Permiso     string `json:"permiso"`
-	Modo        uint32 `json:"modo"`
-	EsDir       bool   `json:"es_dir"`
-	EsSymlink   bool   `json:"es_symlink"`
-	EsRegular   bool   `json:"es_regular"`
-	UID         uint32 `json:"uid,omitempty"`
-	GID         uint32 `json:"gid,omitempty"`
-	SymlinkDest string `json:"symlink_dest,omitempty"`
+	Tipo         string `json:"tipo"`
+	Tamano       int64  `json:"tamano"`
+	Modificado   string `json:"modificado"`
+	Creado       string `json:"creado,omitempty"`
+	Accedido     string `json:"accedido,omitempty"`
+	Permiso      string `json:"permiso"`
+	Modo         uint32 `json:"modo"`
+	EsDir        bool   `json:"es_dir"`
+	EsSymlink    bool   `json:"es_symlink"`
+	EsRegular    bool   `json:"es_regular"`
+	UID          uint32 `json:"uid,omitempty"`
+	GID          uint32 `json:"gid,omitempty"`
+	SymlinkDest  string `json:"symlink_dest,omitempty"`
 }
 
 func (n *NavegadorArchivos) Validar() error { return nil }

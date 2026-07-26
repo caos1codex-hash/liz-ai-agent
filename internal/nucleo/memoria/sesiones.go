@@ -20,43 +20,43 @@ import (
 type RolMensaje string
 
 const (
-	RolUsuario    RolMensaje = "usuario"
-	RolAsistente  RolMensaje = "asistente"
-	RolSistema    RolMensaje = "sistema"
+	RolUsuario     RolMensaje = "usuario"
+	RolAsistente   RolMensaje = "asistente"
+	RolSistema     RolMensaje = "sistema"
 	RolHerramienta RolMensaje = "herramienta"
 )
 
 // Mensaje es un turno de conversación.
 type Mensaje struct {
-	ID        string     `json:"id"`         // uuid
-	Rol       RolMensaje `json:"rol"`
-	Contenido string     `json:"contenido"`
-	Timestamp string     `json:"timestamp"` // RFC3339
-	TokenEstim int      `json:"token_estim"` // estimación ~4 chars/token
-	Metadata  map[string]interface{} `json:"metadata,omitempty"` // tool calls, etc.
+	ID         string                 `json:"id"` // uuid
+	Rol        RolMensaje             `json:"rol"`
+	Contenido  string                 `json:"contenido"`
+	Timestamp  string                 `json:"timestamp"`          // RFC3339
+	TokenEstim int                    `json:"token_estim"`        // estimación ~4 chars/token
+	Metadata   map[string]interface{} `json:"metadata,omitempty"` // tool calls, etc.
 }
 
 // Sesion es una conversación entre usuario y Liz.
 type Sesion struct {
-	ID              string    `json:"id"`               // uuid
-	UsuarioID       string    `json:"usuario_id"`       // identificador del usuario
-	Titulo          string    `json:"titulo,omitempty"` // opcional, autogenerado
-	Inicio          string    `json:"inicio"`           // RFC3339
-	Fin             string    `json:"fin,omitempty"`    // RFC3339, vacío si sigue activa
-	Activa          bool      `json:"activa"`
-	Mensajes        []Mensaje `json:"mensajes"`
-	Resumen         string    `json:"resumen,omitempty"` // generado al cerrar
-	Proyecto        string    `json:"proyecto,omitempty"` // si la sesión trabaja sobre un proyecto
-	TokensTotales   int       `json:"tokens_totales"`
+	ID            string    `json:"id"`               // uuid
+	UsuarioID     string    `json:"usuario_id"`       // identificador del usuario
+	Titulo        string    `json:"titulo,omitempty"` // opcional, autogenerado
+	Inicio        string    `json:"inicio"`           // RFC3339
+	Fin           string    `json:"fin,omitempty"`    // RFC3339, vacío si sigue activa
+	Activa        bool      `json:"activa"`
+	Mensajes      []Mensaje `json:"mensajes"`
+	Resumen       string    `json:"resumen,omitempty"`  // generado al cerrar
+	Proyecto      string    `json:"proyecto,omitempty"` // si la sesión trabaja sobre un proyecto
+	TokensTotales int       `json:"tokens_totales"`
 }
 
 // EstadisticasSesion resume una sesión.
 type EstadisticasSesion struct {
-	TotalMensajes   int `json:"total_mensajes"`
-	MensajesUsuario int `json:"mensajes_usuario"`
+	TotalMensajes     int `json:"total_mensajes"`
+	MensajesUsuario   int `json:"mensajes_usuario"`
 	MensajesAsistente int `json:"mensajes_asistente"`
-	TokensTotales   int `json:"tokens_totales"`
-	DuracionSegundos int `json:"duracion_segundos"`
+	TokensTotales     int `json:"tokens_totales"`
+	DuracionSegundos  int `json:"duracion_segundos"`
 }
 
 // ═══════════════════════════════════════════════════════
@@ -65,9 +65,9 @@ type EstadisticasSesion struct {
 
 // GestorSesiones gestiona la persistencia y consulta de sesiones.
 type GestorSesiones struct {
-	mu         sync.RWMutex
+	mu          sync.RWMutex
 	dirSesiones string // ~/.liz/memoria/sesiones/
-	logFunc    func(string, ...interface{})
+	logFunc     func(string, ...interface{})
 
 	// Cache en memoria: sesión activa por usuario
 	activas map[string]*Sesion // usuarioID → sesión activa

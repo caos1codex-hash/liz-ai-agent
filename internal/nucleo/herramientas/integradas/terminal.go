@@ -91,23 +91,23 @@ func (t *Terminal) Descripcion() string {
 func (t *Terminal) Parametros() []herramientas.Parametro {
 	return []herramientas.Parametro{
 		{
-			Nombre:      "comando",
-			Tipo:        "string",
-			Requerido:   true,
+			Nombre:    "comando",
+			Tipo:      "string",
+			Requerido: true,
 			Descripcion: "Comando a ejecutar (sin argumentos si se usa 'args'). " +
 				"Si se usa solo, se ejecuta directamente sin shell.",
 		},
 		{
-			Nombre:      "args",
-			Tipo:        "array",
-			Items:       "string",
+			Nombre: "args",
+			Tipo:   "array",
+			Items:  "string",
 			Descripcion: "Lista de argumentos para el comando. " +
 				"Si se omite y shell=false, el comando se ejecuta tal cual.",
 		},
 		{
-			Nombre:      "shell",
-			Tipo:        "bool",
-			Default:     false,
+			Nombre:  "shell",
+			Tipo:    "bool",
+			Default: false,
 			Descripcion: "Si true, ejecuta vía 'sh -c comando' (permite pipes, " +
 				"redirecciones, &&, etc.). Más lento y menos seguro.",
 		},
@@ -125,22 +125,22 @@ func (t *Terminal) Parametros() []herramientas.Parametro {
 			Descripcion: "Timeout en segundos. Si el comando excede, se cancela.",
 		},
 		{
-			Nombre:      "env",
-			Tipo:        "object",
+			Nombre: "env",
+			Tipo:   "object",
 			Descripcion: "Variables de entorno extra (key=value). " +
 				"Se añaden a las existentes, no las reemplazan.",
 		},
 		{
-			Nombre:      "peligroso_confirma",
-			Tipo:        "bool",
-			Default:     false,
+			Nombre:  "peligroso_confirma",
+			Tipo:    "bool",
+			Default: false,
 			Descripcion: "Debe ser true para ejecutar comandos en la lista " +
 				"de patrones peligrosos (rm -rf /, mkfs, shutdown, etc.).",
 		},
 		{
-			Nombre:      "combinar_stdout_stderr",
-			Tipo:        "bool",
-			Default:     true,
+			Nombre:  "combinar_stdout_stderr",
+			Tipo:    "bool",
+			Default: true,
 			Descripcion: "Si true, stderr se mezcla con stdout. " +
 				"Si false, se capturan por separado.",
 		},
@@ -149,16 +149,16 @@ func (t *Terminal) Parametros() []herramientas.Parametro {
 
 // ResultadoTerminal es el Datos del Resultado de Terminal.
 type ResultadoTerminal struct {
-	Comando     string   `json:"comando"`
-	Args        []string `json:"args,omitempty"`
-	Stdout      string   `json:"stdout"`
-	Stderr      string   `json:"stderr,omitempty"`
-	CodigoSalida int     `json:"codigo_salida"`
-	DuracionMs  float64  `json:"duracion_ms"`
-	Timeout     bool     `json:"timeout,omitempty"`
-	Truncado    bool     `json:"truncado,omitempty"`
-	Peligroso   bool     `json:"peligroso,omitempty"`
-	Directorio  string   `json:"directorio,omitempty"`
+	Comando      string   `json:"comando"`
+	Args         []string `json:"args,omitempty"`
+	Stdout       string   `json:"stdout"`
+	Stderr       string   `json:"stderr,omitempty"`
+	CodigoSalida int      `json:"codigo_salida"`
+	DuracionMs   float64  `json:"duracion_ms"`
+	Timeout      bool     `json:"timeout,omitempty"`
+	Truncado     bool     `json:"truncado,omitempty"`
+	Peligroso    bool     `json:"peligroso,omitempty"`
+	Directorio   string   `json:"directorio,omitempty"`
 }
 
 func (t *Terminal) Validar() error {
@@ -293,7 +293,7 @@ func (t *Terminal) Ejecutar(ctx context.Context, params map[string]interface{}) 
 				Exito: false,
 				Error: fmt.Sprintf("error al ejecutar comando: %v", err),
 				Metadata: herramientas.NuevaMetadata(
-					float64(duracion.Microseconds())/1000.0),
+					float64(duracion.Microseconds()) / 1000.0),
 			}, nil
 		}
 	}
@@ -324,8 +324,8 @@ func (t *Terminal) Ejecutar(ctx context.Context, params map[string]interface{}) 
 	}
 
 	return herramientas.Resultado{
-		Exito:    exito,
-		Datos:    datos,
+		Exito: exito,
+		Datos: datos,
 		Error: func() string {
 			if exito {
 				return ""

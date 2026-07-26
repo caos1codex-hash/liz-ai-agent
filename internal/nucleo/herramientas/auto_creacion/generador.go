@@ -97,9 +97,9 @@ func (g *Generador) Generar(ctx context.Context, spec SpecHerramienta) (*Resulta
 	// Validar estructura mínima
 	if err := ValidarFuenteGo(fuente); err != nil {
 		return nil, &ErrAutoCreacion{
-			Etapa:    "generacion",
-			Causa:    "código generado no cumple requisitos mínimos",
-			Interno:  err,
+			Etapa:   "generacion",
+			Causa:   "código generado no cumple requisitos mínimos",
+			Interno: err,
 		}
 	}
 
@@ -187,29 +187,29 @@ import (
 )
 
 type solicitud struct {
-	Operacion  string                 ` + "`json:\"operacion\"`" + `
-	Parametros map[string]interface{} ` + "`json:\"parametros\"`" + `
+	Operacion  string                 `+"`json:\"operacion\"`"+`
+	Parametros map[string]interface{} `+"`json:\"parametros\"`"+`
 }
 
 type respuesta struct {
-	Exito    bool                   ` + "`json:\"exito\"`" + `
-	Datos    interface{}            ` + "`json:\"datos,omitempty\"`" + `
-	Error    string                 ` + "`json:\"error,omitempty\"`" + `
-	Metadata map[string]interface{} ` + "`json:\"metadata,omitempty\"`" + `
+	Exito    bool                   `+"`json:\"exito\"`"+`
+	Datos    interface{}            `+"`json:\"datos,omitempty\"`"+`
+	Error    string                 `+"`json:\"error,omitempty\"`"+`
+	Metadata map[string]interface{} `+"`json:\"metadata,omitempty\"`"+`
 }
 
 type parametro struct {
-	Nombre      string      ` + "`json:\"nombre\"`" + `
-	Tipo        string      ` + "`json:\"tipo\"`" + `
-	Requerido   bool        ` + "`json:\"requerido\"`" + `
-	Default     interface{} ` + "`json:\"default,omitempty\"`" + `
-	Descripcion string      ` + "`json:\"descripcion\"`" + `
+	Nombre      string      `+"`json:\"nombre\"`"+`
+	Tipo        string      `+"`json:\"tipo\"`"+`
+	Requerido   bool        `+"`json:\"requerido\"`"+`
+	Default     interface{} `+"`json:\"default,omitempty\"`"+`
+	Descripcion string      `+"`json:\"descripcion\"`"+`
 }
 
 type info struct {
-	Nombre      string      ` + "`json:\"nombre\"`" + `
-	Descripcion string      ` + "`json:\"descripcion\"`" + `
-	Parametros  []parametro ` + "`json:\"parametros\"`" + `
+	Nombre      string      `+"`json:\"nombre\"`"+`
+	Descripcion string      `+"`json:\"descripcion\"`"+`
+	Parametros  []parametro `+"`json:\"parametros\"`"+`
 }
 
 var nombreHerramienta = %q

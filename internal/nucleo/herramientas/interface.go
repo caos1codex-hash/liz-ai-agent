@@ -120,9 +120,9 @@ func (e *ErrParametroRequerido) Error() string {
 
 // ErrTipoParametro indica que un parámetro tiene un tipo incorrecto.
 type ErrTipoParametro struct {
-	Nombre     string
-	Esperado   string
-	Obtenido   string
+	Nombre   string
+	Esperado string
+	Obtenido string
 }
 
 func (e *ErrTipoParametro) Error() string {

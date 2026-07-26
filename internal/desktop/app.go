@@ -28,14 +28,14 @@ type App struct {
 	win     fyne.Window
 	cliente *ClienteBackend
 
-	mu     sync.RWMutex
-	tema   ModoTema
+	mu   sync.RWMutex
+	tema ModoTema
 
-	sidebar       *Sidebar
-	header        *Header
-	chat          *ChatWindow
-	proyectos     *ProjectSelector
-	toasts        *Toast
+	sidebar   *Sidebar
+	header    *Header
+	chat      *ChatWindow
+	proyectos *ProjectSelector
+	toasts    *Toast
 }
 
 // AppOpciones configura la app desktop.
@@ -68,8 +68,8 @@ func NuevaApp(opt AppOpciones) *App {
 	a.toasts = NewToast(nil) // se le asigna window luego
 
 	a.sidebar = NuevoSidebar(SidebarOpciones{
-		Cliente:  a.cliente,
-		App:      a.fyneApp,
+		Cliente: a.cliente,
+		App:     a.fyneApp,
 		OnSelect: func(sesionID string) {
 			a.chat.SetSesion(sesionID)
 		},
@@ -83,7 +83,7 @@ func NuevaApp(opt AppOpciones) *App {
 	a.header.SetTemaIcon(a.tema)
 
 	a.chat = NuevoChatWindow(ChatWindowOpciones{
-		Cliente:        a.cliente,
+		Cliente: a.cliente,
 		OnSesionCreada: func(id string) {
 			a.sidebar.SetSesionActiva(id)
 		},
@@ -93,7 +93,7 @@ func NuevaApp(opt AppOpciones) *App {
 	})
 
 	a.proyectos = NuevoProjectSelector(ProjectSelectorOpciones{
-		Cliente:  a.cliente,
+		Cliente: a.cliente,
 		OnCambio: func(p string) {
 			a.chat.SetProyecto(p)
 		},

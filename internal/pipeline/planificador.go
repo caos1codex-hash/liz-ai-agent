@@ -11,10 +11,10 @@ import (
 // Determina qué herramientas son necesarias y en qué orden.
 // Puede solicitar auto-creación de herramientas faltantes.
 type Planificador struct {
-	orquestador    OrquestadorCliente
-	catalogo       CatalogoCliente
-	autoGestor     AutoCreacionGestor
-	contextoCoord  ContextoCoordinador
+	orquestador   OrquestadorCliente
+	catalogo      CatalogoCliente
+	autoGestor    AutoCreacionGestor
+	contextoCoord ContextoCoordinador
 }
 
 // nuevoPlanificador crea un Planificador con todas las dependencias inyectadas.
@@ -95,10 +95,10 @@ func (p *Planificador) planificarEjecucionComando(plan *PlanEjecucion, mensaje s
 					RequiereLLM: true,
 				},
 				{
-					ID:          2,
-					Descripcion: "Ejecutar comando en terminal",
-					Herramienta: "terminal",
-					DependeDe:   []int{1},
+					ID:              2,
+					Descripcion:     "Ejecutar comando en terminal",
+					Herramienta:     "terminal",
+					DependeDe:       []int{1},
 					TimeoutSegundos: 30,
 				},
 			}
@@ -194,10 +194,10 @@ func (p *Planificador) planificarAutoCreacion(plan *PlanEjecucion, mensaje strin
 			DependeDe:   []int{1},
 		},
 		{
-			ID:          3,
-			Descripcion: "Compilar y registrar la herramienta",
-			Herramienta: "__auto_creacion__",
-			DependeDe:   []int{2},
+			ID:              3,
+			Descripcion:     "Compilar y registrar la herramienta",
+			Herramienta:     "__auto_creacion__",
+			DependeDe:       []int{2},
 			TimeoutSegundos: 60,
 		},
 		{

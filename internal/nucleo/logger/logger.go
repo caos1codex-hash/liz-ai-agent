@@ -13,20 +13,20 @@ import (
 type Nivel string
 
 const (
-	NivelDebug   Nivel = "DEBUG"
-	NivelInfo    Nivel = "INFO"
-	NivelWarn    Nivel = "WARN"
-	NivelError   Nivel = "ERROR"
-	NivelFatal   Nivel = "FATAL"
+	NivelDebug Nivel = "DEBUG"
+	NivelInfo  Nivel = "INFO"
+	NivelWarn  Nivel = "WARN"
+	NivelError Nivel = "ERROR"
+	NivelFatal Nivel = "FATAL"
 )
 
 // EntradaLog representa una entrada de log estructurado en JSON
 type EntradaLog struct {
 	Timestamp string      `json:"timestamp"`
-	Nivel    string      `json:"nivel"`
-	Modulo   string      `json:"modulo"`
-	Mensaje  string      `json:"mensaje"`
-	Datos    interface{} `json:"datos,omitempty"`
+	Nivel     string      `json:"nivel"`
+	Modulo    string      `json:"modulo"`
+	Mensaje   string      `json:"mensaje"`
+	Datos     interface{} `json:"datos,omitempty"`
 }
 
 // Logger es el logger estructurado de Liz.
@@ -115,9 +115,9 @@ func (l *Logger) registrar(nivel Nivel, formato string, args ...interface{}) {
 	// Construir entrada estructurada
 	entrada := EntradaLog{
 		Timestamp: timestamp,
-		Nivel:    string(nivel),
-		Modulo:   l.modulo,
-		Mensaje:  mensaje,
+		Nivel:     string(nivel),
+		Modulo:    l.modulo,
+		Mensaje:   mensaje,
 	}
 
 	// Escribir al archivo de log en formato JSON

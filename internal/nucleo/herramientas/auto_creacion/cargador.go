@@ -48,11 +48,11 @@ type HerramientaSubproceso struct {
 	logFunc func(formato string, args ...interface{})
 
 	// contador de ejecuciones (para metadata persistente, thread-safe).
-	contadorMu       sync.Mutex
-	vecesEjecutada   int
-	vecesExitosas    int
-	ultimoError      string
-	ultimoUso        time.Time
+	contadorMu     sync.Mutex
+	vecesEjecutada int
+	vecesExitosas  int
+	ultimoError    string
+	ultimoUso      time.Time
 }
 
 // NuevaHerramientaSubproceso crea un wrapper para el binario dado.

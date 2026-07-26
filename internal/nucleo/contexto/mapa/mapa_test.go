@@ -252,7 +252,7 @@ func TestGuardarY_Cargar(t *testing.T) {
 }
 
 func TestDetectarLenguaje(t *testing.T) {
-	tests := []struct{
+	tests := []struct {
 		ruta     string
 		esperado string
 	}{

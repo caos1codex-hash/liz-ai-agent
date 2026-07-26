@@ -28,19 +28,19 @@ type MetricaHerramienta struct {
 // Metricas es un colector thread-safe de métricas por herramienta.
 // Se invoca automáticamente desde Catalogo.Ejecutar().
 type Metricas struct {
-	mu       sync.RWMutex
-	porHerr  map[string]*metricasInternas
+	mu      sync.RWMutex
+	porHerr map[string]*metricasInternas
 }
 
 type metricasInternas struct {
-	ejecuciones      int64
-	exitos           int64
-	fallos           int64
-	latenciaTotalNs  int64
-	latenciaMinNs    int64
-	latenciaMaxNs    int64
-	ultimoUso        time.Time
-	ultimoError      string
+	ejecuciones     int64
+	exitos          int64
+	fallos          int64
+	latenciaTotalNs int64
+	latenciaMinNs   int64
+	latenciaMaxNs   int64
+	ultimoUso       time.Time
+	ultimoError     string
 }
 
 // NuevasMetricas crea un colector de métricas vacío.
@@ -164,11 +164,11 @@ func (m *Metricas) snapshotUna(mi *metricasInternas, nombre string) MetricaHerra
 
 // Resumen retorna estadísticas agregadas de todas las herramientas.
 type ResumenMetricas struct {
-	TotalHerramientas int            `json:"total_herramientas"`
-	TotalEjecuciones  int64          `json:"total_ejecuciones"`
-	TotalExitos       int64          `json:"total_exitos"`
-	TotalFallos       int64          `json:"total_fallos"`
-	TasaExitoGlobal   float64        `json:"tasa_exito_global"`
+	TotalHerramientas int                  `json:"total_herramientas"`
+	TotalEjecuciones  int64                `json:"total_ejecuciones"`
+	TotalExitos       int64                `json:"total_exitos"`
+	TotalFallos       int64                `json:"total_fallos"`
+	TasaExitoGlobal   float64              `json:"tasa_exito_global"`
 	PorHerramienta    []MetricaHerramienta `json:"por_herramienta"`
 }
 

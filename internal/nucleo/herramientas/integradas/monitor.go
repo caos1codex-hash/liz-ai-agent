@@ -58,55 +58,55 @@ func (m *Monitor) Parametros() []herramientas.Parametro {
 
 // ResultadoMonitor es el Datos de Monitor.
 type ResultadoMonitor struct {
-	Operacion string          `json:"operacion"`
-	CPU       *InfoCPU        `json:"cpu,omitempty"`
-	Memoria   *InfoMemoria    `json:"memoria,omitempty"`
-	Disco     *InfoDisco      `json:"disco,omitempty"`
-	Red       []InfoInterfaz  `json:"red,omitempty"`
-	Uptime    *InfoUptime     `json:"uptime,omitempty"`
-	Timestamp string          `json:"timestamp"`
+	Operacion string         `json:"operacion"`
+	CPU       *InfoCPU       `json:"cpu,omitempty"`
+	Memoria   *InfoMemoria   `json:"memoria,omitempty"`
+	Disco     *InfoDisco     `json:"disco,omitempty"`
+	Red       []InfoInterfaz `json:"red,omitempty"`
+	Uptime    *InfoUptime    `json:"uptime,omitempty"`
+	Timestamp string         `json:"timestamp"`
 }
 
 // InfoCPU contiene métricas de CPU.
 type InfoCPU struct {
-	LoadAvg1      float64   `json:"load_avg_1"`
-	LoadAvg5      float64   `json:"load_avg_5"`
-	LoadAvg15     float64   `json:"load_avg_15"`
-	NumCores      int       `json:"num_cores"`
-	UsoPorcentaje float64   `json:"uso_porcentaje"`
-	Procesos      int       `json:"procesos,omitempty"`
+	LoadAvg1      float64       `json:"load_avg_1"`
+	LoadAvg5      float64       `json:"load_avg_5"`
+	LoadAvg15     float64       `json:"load_avg_15"`
+	NumCores      int           `json:"num_cores"`
+	UsoPorcentaje float64       `json:"uso_porcentaje"`
+	Procesos      int           `json:"procesos,omitempty"`
 	Cores         []InfoCPUCore `json:"cores,omitempty"`
 }
 
 // InfoCPUCore info de un core individual.
 type InfoCPUCore struct {
-	ID       int     `json:"id"`
-	Frecuencia int64  `json:"frecuencia_khz,omitempty"`
-	Online   bool    `json:"online"`
+	ID         int   `json:"id"`
+	Frecuencia int64 `json:"frecuencia_khz,omitempty"`
+	Online     bool  `json:"online"`
 }
 
 // InfoMemoria contiene métricas de RAM.
 type InfoMemoria struct {
-	TotalKB       int64   `json:"total_kb"`
-	LibreKB       int64   `json:"libre_kb"`
-	DisponibleKB  int64   `json:"disponible_kb"`
-	BuffersKB     int64   `json:"buffers_kb"`
-	CachedKB      int64   `json:"cached_kb"`
-	UsadaKB       int64   `json:"usada_kb"`
+	TotalKB         int64   `json:"total_kb"`
+	LibreKB         int64   `json:"libre_kb"`
+	DisponibleKB    int64   `json:"disponible_kb"`
+	BuffersKB       int64   `json:"buffers_kb"`
+	CachedKB        int64   `json:"cached_kb"`
+	UsadaKB         int64   `json:"usada_kb"`
 	UsadaPorcentaje float64 `json:"usada_porcentaje"`
-	SwapTotalKB   int64   `json:"swap_total_kb"`
-	SwapUsadaKB   int64   `json:"swap_usada_kb"`
+	SwapTotalKB     int64   `json:"swap_total_kb"`
+	SwapUsadaKB     int64   `json:"swap_usada_kb"`
 }
 
 // InfoDisco contiene métricas de un punto de montaje.
 type InfoDisco struct {
-	Ruta          string  `json:"ruta"`
-	TotalBytes    int64   `json:"total_bytes"`
-	LibreBytes    int64   `json:"libre_bytes"`
-	UsadoBytes    int64   `json:"usado_bytes"`
+	Ruta            string  `json:"ruta"`
+	TotalBytes      int64   `json:"total_bytes"`
+	LibreBytes      int64   `json:"libre_bytes"`
+	UsadoBytes      int64   `json:"usado_bytes"`
 	UsadoPorcentaje float64 `json:"usado_porcentaje"`
-	InodosTotal   int64   `json:"inodos_total"`
-	InodosLibres  int64   `json:"inodos_libres"`
+	InodosTotal     int64   `json:"inodos_total"`
+	InodosLibres    int64   `json:"inodos_libres"`
 }
 
 // InfoInterfaz contiene métricas de una interfaz de red.
@@ -125,9 +125,9 @@ type InfoInterfaz struct {
 
 // InfoUptime contiene info de uptime del sistema.
 type InfoUptime struct {
-	Segundos    int64  `json:"segundos"`
-	Humano      string `json:"humano"`
-	InicioBoot  string `json:"inicio_boot"`
+	Segundos   int64  `json:"segundos"`
+	Humano     string `json:"humano"`
+	InicioBoot string `json:"inicio_boot"`
 }
 
 func (m *Monitor) Validar() error { return nil }

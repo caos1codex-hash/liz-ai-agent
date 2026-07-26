@@ -9,9 +9,9 @@ import (
 func TestGeneradorResumenLLM_NilOrquestador_RetornaVacio(t *testing.T) {
 	g := NuevoGeneradorResumenLLM(t.TempDir(), nil)
 	resumen := g.GenerarResumen(buscador.FragmentoBuscable{
-		ID:       "f1",
+		ID:        "f1",
 		Contenido: "func hello() { println(\"hello\") }",
-		Lenguaje: "go",
+		Lenguaje:  "go",
 	})
 	if resumen != "" {
 		t.Errorf("esperado vacio, got %q", resumen)

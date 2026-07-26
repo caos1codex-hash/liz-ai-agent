@@ -13,9 +13,9 @@ type herrPrueba struct {
 
 var _ Herramienta = (*herrPrueba)(nil)
 
-func (h *herrPrueba) Nombre() string                                          { return h.nombre }
-func (h *herrPrueba) Descripcion() string                                     { return "herramienta de prueba" }
-func (h *herrPrueba) Parametros() []Parametro                                 { return nil }
+func (h *herrPrueba) Nombre() string          { return h.nombre }
+func (h *herrPrueba) Descripcion() string     { return "herramienta de prueba" }
+func (h *herrPrueba) Parametros() []Parametro { return nil }
 func (h *herrPrueba) Ejecutar(ctx context.Context, p map[string]interface{}) (Resultado, error) {
 	return Resultado{Exito: true, Datos: "ok"}, nil
 }
@@ -217,8 +217,8 @@ func TestValidarNombre(t *testing.T) {
 		{"terminal", true},
 		{"buscador_archivos", true},
 		{"h2", true},
-		{"a", false},       // muy corto
-		{"x", false},       // muy corto
+		{"a", false}, // muy corto
+		{"x", false}, // muy corto
 		{"CON_MAYUSCULAS", false},
 		{"con-guion", false},
 		{"con espacios", false},
@@ -265,9 +265,9 @@ type herrInvalida struct{}
 
 var _ Herramienta = (*herrInvalida)(nil)
 
-func (h *herrInvalida) Nombre() string                                          { return "invalida" }
-func (h *herrInvalida) Descripcion() string                                     { return "falsa" }
-func (h *herrInvalida) Parametros() []Parametro                                 { return nil }
+func (h *herrInvalida) Nombre() string          { return "invalida" }
+func (h *herrInvalida) Descripcion() string     { return "falsa" }
+func (h *herrInvalida) Parametros() []Parametro { return nil }
 func (h *herrInvalida) Ejecutar(ctx context.Context, p map[string]interface{}) (Resultado, error) {
 	return Resultado{}, nil
 }

@@ -14,10 +14,10 @@ type OrquestadorCliente interface {
 
 // ChunkOrquestador representa un fragmento de la respuesta del orquestador.
 type ChunkOrquestador struct {
-	Delta   string
-	Modelo  string
-	Error   error
-	Done    bool
+	Delta  string
+	Modelo string
+	Error  error
+	Done   bool
 }
 
 // CatalogoCliente define la interfaz que el pipeline necesita del catálogo de herramientas.
@@ -37,9 +37,9 @@ type ResultadoHerramienta struct {
 
 // InfoHerramientaSnapshot es la vista serializable de una herramienta.
 type InfoHerramientaSnapshot struct {
-	Nombre     string      `json:"nombre"`
+	Nombre      string      `json:"nombre"`
 	Descripcion string      `json:"descripcion"`
-	Parametros interface{} `json:"parametros"`
+	Parametros  interface{} `json:"parametros"`
 }
 
 // AutoCreacionGestor define la interfaz para auto-creación de herramientas.

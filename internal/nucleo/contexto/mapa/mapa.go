@@ -17,36 +17,36 @@ import (
 
 // EntradaMapa representa un archivo o directorio en el mapa del proyecto.
 type EntradaMapa struct {
-	Ruta      string `json:"ruta"`
-	Tipo      string `json:"tipo"`      // "archivo" o "directorio"
-	Lineas    int    `json:"lineas"`    // líneas del archivo (0 para directorios)
-	Lenguaje  string `json:"lenguaje"`  // "go", "python", "yaml", "", etc.
-	Resumen   string `json:"resumen"`   // descripción corta generada
-	Tamanio   int64  `json:"tamanio"`   // bytes
+	Ruta       string `json:"ruta"`
+	Tipo       string `json:"tipo"`       // "archivo" o "directorio"
+	Lineas     int    `json:"lineas"`     // líneas del archivo (0 para directorios)
+	Lenguaje   string `json:"lenguaje"`   // "go", "python", "yaml", "", etc.
+	Resumen    string `json:"resumen"`    // descripción corta generada
+	Tamanio    int64  `json:"tamanio"`    // bytes
 	Modificado string `json:"modificado"` // fecha de modificación
 }
 
 // MapaProyecto es el mapa completo de un proyecto.
 // Este es el "catálogo de la biblioteca" que se entrega al modelo.
 type MapaProyecto struct {
-	Version     string               `json:"version"`
-	Proyecto    string               `json:"proyecto"`
-	Timestamp   string               `json:"timestamp"`
-	Archivos    map[string]string    `json:"archivos"`     // ruta → resumen corto
-	Estructura  string               `json:"estructura"`  // resumen de estructura de directorios
-	Resumen     string               `json:"resumen"`     // descripción general del proyecto
-	Entradas    []EntradaMapa        `json:"entradas"`    // lista detallada de entradas
-	TotalArchivos int                `json:"total_archivos"`
-	TotalDirs    int                 `json:"total_dirs"`
-	TotalLineas  int                 `json:"total_lineas"`
+	Version       string            `json:"version"`
+	Proyecto      string            `json:"proyecto"`
+	Timestamp     string            `json:"timestamp"`
+	Archivos      map[string]string `json:"archivos"`   // ruta → resumen corto
+	Estructura    string            `json:"estructura"` // resumen de estructura de directorios
+	Resumen       string            `json:"resumen"`    // descripción general del proyecto
+	Entradas      []EntradaMapa     `json:"entradas"`   // lista detallada de entradas
+	TotalArchivos int               `json:"total_archivos"`
+	TotalDirs     int               `json:"total_dirs"`
+	TotalLineas   int               `json:"total_lineas"`
 }
 
 // OpcionesMapa configura el comportamiento del generador de mapas.
 type OpcionesMapa struct {
-	IgnorarDirs    []string // directorios a ignorar
+	IgnorarDirs     []string // directorios a ignorar
 	IgnorarArchivos []string // patrones de archivos a ignorar
-	MaxLineasMapa  int      // máximo de líneas por archivo para incluir en resumen
-	IncluirOcultos bool     // si incluir archivos ocultos
+	MaxLineasMapa   int      // máximo de líneas por archivo para incluir en resumen
+	IncluirOcultos  bool     // si incluir archivos ocultos
 	ProfundidadMax  int      // 0 = sin límite
 	SoloLegibles    bool     // solo archivos que se pueden leer
 }
@@ -65,7 +65,7 @@ func OpcionesPorDefecto() OpcionesMapa {
 			"*.min.js", "*.min.css", "*.map", "*.lock",
 			"go.sum",
 		},
-		MaxLineasMapa: 100,
+		MaxLineasMapa:  100,
 		IncluirOcultos: false,
 		ProfundidadMax: 0,
 		SoloLegibles:   true,
@@ -338,7 +338,7 @@ func (g *Generador) generarEstructura(entradas []EntradaMapa) string {
 		}
 	}
 	sort.Strings(dirNames)
-	
+
 	// Archivos en raíz
 	rootCount := 0
 	for _, e := range entradas {

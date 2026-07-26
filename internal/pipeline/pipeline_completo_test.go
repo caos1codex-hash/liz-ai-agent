@@ -12,9 +12,9 @@ import (
 // ============================================================================
 
 type mockOrquestador struct {
-	completarFunc      func(ctx context.Context, prompt, tipo string) (string, error)
+	completarFunc       func(ctx context.Context, prompt, tipo string) (string, error)
 	completarStreamFunc func(ctx context.Context, prompt, tipo string) (<-chan ChunkOrquestador, error)
-	modeloActual       string
+	modeloActual        string
 }
 
 func (m *mockOrquestador) Completar(ctx context.Context, prompt, tipo string) (string, error) {
@@ -41,12 +41,12 @@ func (m *mockOrquestador) ModeloActual() string {
 }
 
 type mockMemoria struct {
-	mu              sync.Mutex
-	sesiones        map[string]*InfoSesion
-	mensajes        map[string][]InfoMensaje
-	hechos          map[string]string
-	crearSesionErr  error
-	agregarMsgErr   error
+	mu             sync.Mutex
+	sesiones       map[string]*InfoSesion
+	mensajes       map[string][]InfoMensaje
+	hechos         map[string]string
+	crearSesionErr error
+	agregarMsgErr  error
 }
 
 func newMockMemoria() *mockMemoria {
@@ -109,9 +109,9 @@ func (m *mockMemoria) ContextoParaLLM(usuarioID string, ultimosNMensajes int, li
 }
 
 type mockCatalogo struct {
-	existeFunc    func(nombre string) bool
-	ejecutarFunc  func(ctx context.Context, nombre string, params map[string]interface{}) (*ResultadoHerramienta, error)
-	snapshotFunc  func() []InfoHerramientaSnapshot
+	existeFunc   func(nombre string) bool
+	ejecutarFunc func(ctx context.Context, nombre string, params map[string]interface{}) (*ResultadoHerramienta, error)
+	snapshotFunc func() []InfoHerramientaSnapshot
 }
 
 func (m *mockCatalogo) Existe(nombre string) bool {
@@ -317,9 +317,9 @@ func TestPipeline_ProcesarStream_StreamError(t *testing.T) {
 			ch := make(chan ChunkOrquestador, 2)
 			ch <- ChunkOrquestador{Error: fmt.Errorf("timeout de stream")}
 			ch <- ChunkOrquestador{Done: true}
-		close(ch)
-		return ch, nil
-	},
+			close(ch)
+			return ch, nil
+		},
 		completarFunc: func(ctx context.Context, prompt, tipo string) (string, error) {
 			return "fallback response", nil
 		},
@@ -407,9 +407,9 @@ func TestPipeline_Estado_CategoriaCount(t *testing.T) {
 	p := Nuevo(NuevasOpciones{})
 
 	// Procesar mensajes de diferentes categorías
-	p.Procesar(context.Background(), &SolicitudChat{Mensaje: "hola"})                           // conversacion
-	p.Procesar(context.Background(), &SolicitudChat{Mensaje: "instala docker"})                   // instalacion
-	p.Procesar(context.Background(), &SolicitudChat{Mensaje: "estado de la cpu"})                 // monitorizacion
+	p.Procesar(context.Background(), &SolicitudChat{Mensaje: "hola"})             // conversacion
+	p.Procesar(context.Background(), &SolicitudChat{Mensaje: "instala docker"})   // instalacion
+	p.Procesar(context.Background(), &SolicitudChat{Mensaje: "estado de la cpu"}) // monitorizacion
 
 	estado := p.Estado()
 	if estado.MensajesProcesados != 3 {
@@ -602,7 +602,7 @@ func TestClasificador_ConLLM_ErrorRespuesta(t *testing.T) {
 	orch := &mockOrquestador{
 		completarFunc: func(ctx context.Context, prompt, tipo string) (string, error) {
 			return "", fmt.Errorf("LLM no disponible")
-	},
+		},
 	}
 
 	clasif := nuevoClasificador(orch)
@@ -654,10 +654,10 @@ func TestClasificador_PrioridadDesdeCategoria(t *testing.T) {
 
 func TestParsearClasificacion(t *testing.T) {
 	tests := []struct {
-		nombre  string
-		input   string
-		cat     CategoriaTarea
-		conf    float64
+		nombre string
+		input  string
+		cat    CategoriaTarea
+		conf   float64
 	}{
 		{"JSON válido", `{"categoria": "codigo", "confianza": 0.9, "razonamiento": "test", "necesita_contexto": true, "prioridad": 2}`, CategoriaCodigo, 0.9},
 		{"Confianza 0", `{"categoria": "busqueda", "confianza": 0, "razonamiento": "r", "prioridad": 1}`, CategoriaBusqueda, 0.5},
@@ -908,7 +908,7 @@ func TestParsearPasosPlan(t *testing.T) {
 			if tc.esperar == 0 {
 				if err == nil {
 					t.Error("esperaba error")
-			}
+				}
 				return
 			}
 			if err != nil {
@@ -1307,8 +1307,8 @@ func TestRespondedor_GenerarRespuestaSimpleStream(t *testing.T) {
 			ch <- ChunkOrquestador{Delta: "stream ", Modelo: "m"}
 			ch <- ChunkOrquestador{Delta: "simple", Modelo: "m"}
 			ch <- ChunkOrquestador{Done: true}
-		close(ch)
-		return ch, nil
+			close(ch)
+			return ch, nil
 		},
 		modeloActual: "stream-m",
 	}
@@ -1390,7 +1390,7 @@ func TestResultadoClasificacion_RequiereHerramientas(t *testing.T) {
 
 func TestResultadoClasificacion_PrioridadModelo(t *testing.T) {
 	tests := []struct {
-		cat   CategoriaTarea
+		cat      CategoriaTarea
 		esperado string
 	}{
 		{CategoriaCodigo, "codigo"},

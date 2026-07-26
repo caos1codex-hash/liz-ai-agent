@@ -34,10 +34,10 @@ import (
 //	    res, err := cat.Ejecutar(ctx, "terminal", params)
 //	}
 type Catalogo struct {
-	mu          sync.RWMutex
+	mu           sync.RWMutex
 	herramientas map[string]herramientas.Herramienta
-	metricas    *Metricas
-	log         func(formato string, args ...interface{})
+	metricas     *Metricas
+	log          func(formato string, args ...interface{})
 }
 
 // NuevoCatalogo crea un catálogo vacío.

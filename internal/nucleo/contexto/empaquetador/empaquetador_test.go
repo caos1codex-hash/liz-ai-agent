@@ -262,9 +262,9 @@ func TestEmpaquetar_Capa3_ExpandeImports(t *testing.T) {
 
 	resultado := e.Empaquetar(
 		SolicitudEmpaquetado{
-			Proyecto:          "test",
-			Query:             "authenticate",
-			PresupuestoTokens: 5000,
+			Proyecto:           "test",
+			Query:              "authenticate",
+			PresupuestoTokens:  5000,
 			ProfundidadImports: 1,
 		},
 		DatosEmpaquetado{

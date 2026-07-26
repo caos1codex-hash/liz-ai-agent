@@ -19,8 +19,8 @@ type ProjectSelector struct {
 
 	cliente *ClienteBackend
 
-	mu          sync.RWMutex
-	proyectos   []ProyectoContexto
+	mu           sync.RWMutex
+	proyectos    []ProyectoContexto
 	seleccionado string
 
 	// UI
@@ -33,8 +33,8 @@ type ProjectSelector struct {
 
 // ProjectSelectorOpciones configura el selector.
 type ProjectSelectorOpciones struct {
-	Cliente   *ClienteBackend
-	OnCambio  func(proyecto string)
+	Cliente  *ClienteBackend
+	OnCambio func(proyecto string)
 }
 
 // NuevoProjectSelector crea el selector de proyecto.

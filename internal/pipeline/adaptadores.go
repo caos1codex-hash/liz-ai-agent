@@ -6,9 +6,9 @@ import (
 
 // AdaptadorOrquestador adapta el orquestador real del proyecto a la interfaz del pipeline.
 type AdaptadorOrquestador struct {
-	completarFunc      func(ctx context.Context, prompt string, tipoTarea string) (string, error)
+	completarFunc       func(ctx context.Context, prompt string, tipoTarea string) (string, error)
 	completarStreamFunc func(ctx context.Context, prompt string, tipoTarea string) (<-chan ChunkOrquestador, error)
-	modeloActualFunc   func() string
+	modeloActualFunc    func() string
 }
 
 // Completar implementa OrquestadorCliente.
@@ -39,7 +39,7 @@ func (a *AdaptadorOrquestador) ModeloActual() string {
 
 // AdaptadorCatalogo adapta el catálogo real a la interfaz del pipeline.
 type AdaptadorCatalogo struct {
-	existeFunc  func(nombre string) bool
+	existeFunc   func(nombre string) bool
 	ejecutarFunc func(ctx context.Context, nombre string, params map[string]interface{}) (*ResultadoHerramienta, error)
 	snapshotFunc func() []InfoHerramientaSnapshot
 }
@@ -70,12 +70,12 @@ func (a *AdaptadorCatalogo) Snapshot() []InfoHerramientaSnapshot {
 
 // AdaptadorMemoria adapta el gestor de memoria real a la interfaz del pipeline.
 type AdaptadorMemoria struct {
-	obtenerSesionFunc        func(ctx context.Context, sesionID, usuarioID string) (*InfoSesion, error)
-	crearSesionFunc          func(ctx context.Context, usuarioID, proyecto string) (*InfoSesion, error)
-	agregarMensajeFunc       func(ctx context.Context, sesionID, usuarioID, contenido string) error
+	obtenerSesionFunc            func(ctx context.Context, sesionID, usuarioID string) (*InfoSesion, error)
+	crearSesionFunc              func(ctx context.Context, usuarioID, proyecto string) (*InfoSesion, error)
+	agregarMensajeFunc           func(ctx context.Context, sesionID, usuarioID, contenido string) error
 	obtenerMensajesRecientesFunc func(sesionID string, limite int) []InfoMensaje
-	obtenerHechosFunc        func(usuarioID string, limite int) string
-	contextoParaLLMFunc      func(usuarioID string, ultimosNMensajes int, limiteHechos int) string
+	obtenerHechosFunc            func(usuarioID string, limite int) string
+	contextoParaLLMFunc          func(usuarioID string, ultimosNMensajes int, limiteHechos int) string
 }
 
 // ObtenerSesion implementa MemoriaGestor.

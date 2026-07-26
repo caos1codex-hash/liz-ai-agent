@@ -19,23 +19,23 @@ import (
 //
 // Estructura en disco (en dirRaiz, típicamente ~/.liz/herramientas/auto_creadas/):
 //
-//   dirRaiz/
-//   ├── registro.json              # índice global: lista de nombres + versión
-//   ├── {nombre1}/
-//   │   ├── fuente.go              # código fuente Go
-//   │   ├── herramienta            # binario compilado
-//   │   ├── metadata.json          # spec + timestamps + estadísticas
-//   │   └── compilacion.log        # log de última compilación
-//   ├── {nombre2}/
-//   └── ...
+//	dirRaiz/
+//	├── registro.json              # índice global: lista de nombres + versión
+//	├── {nombre1}/
+//	│   ├── fuente.go              # código fuente Go
+//	│   ├── herramienta            # binario compilado
+//	│   ├── metadata.json          # spec + timestamps + estadísticas
+//	│   └── compilacion.log        # log de última compilación
+//	├── {nombre2}/
+//	└── ...
 //
 // El registro.json es solo un índice para lookup rápido; la metadata
 // completa vive en cada herramienta. Si se pierde el índice, se puede
 // reconstruir escaneando los subdirectorios.
 type Registro struct {
-	mu       sync.RWMutex
-	dirRaiz  string
-	logFunc  func(formato string, args ...interface{})
+	mu      sync.RWMutex
+	dirRaiz string
+	logFunc func(formato string, args ...interface{})
 }
 
 // NuevoRegistro crea un Registro que persiste en dirRaiz.

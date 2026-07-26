@@ -33,17 +33,17 @@ const (
 
 // paleta contiene los colores base para un modo.
 type paleta struct {
-	fondo          color.Color
-	fondoPanel     color.Color
-	fondoInput     color.Color
-	primario       color.Color
-	primarioHover  color.Color
-	accent         color.Color
-	texto          color.Color
-	textoSec       color.Color
-	borde          color.Color
-	exito          color.Color
-	error          color.Color
+	fondo         color.Color
+	fondoPanel    color.Color
+	fondoInput    color.Color
+	primario      color.Color
+	primarioHover color.Color
+	accent        color.Color
+	texto         color.Color
+	textoSec      color.Color
+	borde         color.Color
+	exito         color.Color
+	error         color.Color
 }
 
 var paletaOscuro = paleta{

@@ -78,22 +78,22 @@ type ChunkSSE struct {
 	PasoID    int             `json:"paso_id,omitempty"`
 	Modelo    string          `json:"modelo,omitempty"`
 	// Campos adicionales del chunk "completado":
-	SesionID       string `json:"sesion_id,omitempty"`
-	Tokens         int    `json:"tokens,omitempty"`
-	DuracionMs     int64  `json:"duracion_ms,omitempty"`
-	PasosEjecutados int   `json:"pasos_ejecutados,omitempty"`
-	Error          string `json:"error,omitempty"`
+	SesionID        string `json:"sesion_id,omitempty"`
+	Tokens          int    `json:"tokens,omitempty"`
+	DuracionMs      int64  `json:"duracion_ms,omitempty"`
+	PasosEjecutados int    `json:"pasos_ejecutados,omitempty"`
+	Error           string `json:"error,omitempty"`
 }
 
 // SesionChat espeja memoria.Sesion.
 type SesionChat struct {
-	ID         string    `json:"id"`
-	UsuarioID  string    `json:"usuario_id"`
-	Proyecto   string    `json:"proyecto,omitempty"`
-	Titulo     string    `json:"titulo,omitempty"`
-	Activa     bool      `json:"activa"`
-	CreadaEn   time.Time `json:"creada_en"`
-	CerradaEn  *time.Time `json:"cerrada_en,omitempty"`
+	ID        string     `json:"id"`
+	UsuarioID string     `json:"usuario_id"`
+	Proyecto  string     `json:"proyecto,omitempty"`
+	Titulo    string     `json:"titulo,omitempty"`
+	Activa    bool       `json:"activa"`
+	CreadaEn  time.Time  `json:"creada_en"`
+	CerradaEn *time.Time `json:"cerrada_en,omitempty"`
 }
 
 // MensajeChat espeja memoria.Mensaje.
@@ -110,11 +110,11 @@ type MensajeChat struct {
 
 // EstadoPipeline espeja pipeline.EstadoPipeline (respuesta GET /api/v1/chat).
 type EstadoPipeline struct {
-	MensajesProcesados int64            `json:"mensajes_procesados"`
-	PromedioDuracion   string           `json:"promedio_duracion"`
-	UltimoUso          string           `json:"ultimo_uso"`
-	Categorias         map[string]int   `json:"categorias"`
-	ModeloMasUsado     string           `json:"modelo_mas_usado"`
+	MensajesProcesados int64          `json:"mensajes_procesados"`
+	PromedioDuracion   string         `json:"promedio_duracion"`
+	UltimoUso          string         `json:"ultimo_uso"`
+	Categorias         map[string]int `json:"categorias"`
+	ModeloMasUsado     string         `json:"modelo_mas_usado"`
 }
 
 // ModeloOrquestador espeja orquestador.InfoModelo.
@@ -127,7 +127,7 @@ type ModeloOrquestador struct {
 // ProyectoContexto espeja contexto.ProyectoInfo (versión simplificada).
 type ProyectoContexto struct {
 	Nombre      string `json:"nombre"`
-	Ruta         string `json:"ruta,omitempty"`
+	Ruta        string `json:"ruta,omitempty"`
 	Archivos    int    `json:"archivos,omitempty"`
 	TamañoBytes int64  `json:"tamano_bytes,omitempty"`
 }

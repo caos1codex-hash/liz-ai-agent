@@ -169,7 +169,7 @@ func TestGenerar_ArchivoInexistente(t *testing.T) {
 }
 
 func TestTipoArchivo(t *testing.T) {
-	tests := []struct{
+	tests := []struct {
 		ruta     string
 		esperado string
 	}{
@@ -199,7 +199,7 @@ func TestTipoArchivo(t *testing.T) {
 }
 
 func TestCalcularComplejidad(t *testing.T) {
-	tests := []struct{
+	tests := []struct {
 		res      *ResumenArchivo
 		esperado string
 	}{

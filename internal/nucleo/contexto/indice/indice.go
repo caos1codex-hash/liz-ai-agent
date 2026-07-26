@@ -1,15 +1,15 @@
 package indice
 
 import (
-        "crypto/sha256"
-        "encoding/json"
-        "fmt"
-        "os"
-        "path/filepath"
-        "sort"
-        "strings"
-        "sync"
-        "time"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
 )
 
 // ═══════════════════════════════════════════════════════
@@ -18,115 +18,115 @@ import (
 
 // EntradaIndice representa un archivo indexado con sus fragmentos.
 type EntradaIndice struct {
-        Ruta                string   `json:"ruta"`
-        Lenguaje            string   `json:"lenguaje"`
-        Lineas              int      `json:"lineas"`
-        FragmentoIDs        []string `json:"fragmento_ids"`
-        Resumen             string   `json:"resumen"`
-        HashContenido       string   `json:"hash_contenido"`   // para detectar cambios
-        Tamano              int64    `json:"tamano"`            // bytes (para detección rápida de cambios)
-        Mtime               int64    `json:"mtime"`             // unix nano (para detección rápida de cambios)
-        UltimaActualizacion string   `json:"ultima_actualizacion"`
+	Ruta                string   `json:"ruta"`
+	Lenguaje            string   `json:"lenguaje"`
+	Lineas              int      `json:"lineas"`
+	FragmentoIDs        []string `json:"fragmento_ids"`
+	Resumen             string   `json:"resumen"`
+	HashContenido       string   `json:"hash_contenido"` // para detectar cambios
+	Tamano              int64    `json:"tamano"`         // bytes (para detección rápida de cambios)
+	Mtime               int64    `json:"mtime"`          // unix nano (para detección rápida de cambios)
+	UltimaActualizacion string   `json:"ultima_actualizacion"`
 }
 
 // IndiceProyecto es el índice completo de un proyecto.
 // Es el "árbol" que conecta el mapa con los fragmentos.
 type IndiceProyecto struct {
-        Version              string                   `json:"version"`
-        Proyecto             string                   `json:"proyecto"`
-        RutaAbsoluta         string                   `json:"ruta_absoluta"`
-        Timestamp            string                   `json:"timestamp"`
-        Archivos             map[string]EntradaIndice `json:"archivos"`
-        TotalArchivos        int                      `json:"total_archivos"`
-        TotalFragmentos      int                      `json:"total_fragmentos"`
-        Lenguajes            map[string]int           `json:"lenguajes"` // lenguaje → cantidad
-        UltimaReconstruccion string                   `json:"ultima_reconstruccion"`
+	Version              string                   `json:"version"`
+	Proyecto             string                   `json:"proyecto"`
+	RutaAbsoluta         string                   `json:"ruta_absoluta"`
+	Timestamp            string                   `json:"timestamp"`
+	Archivos             map[string]EntradaIndice `json:"archivos"`
+	TotalArchivos        int                      `json:"total_archivos"`
+	TotalFragmentos      int                      `json:"total_fragmentos"`
+	Lenguajes            map[string]int           `json:"lenguajes"` // lenguaje → cantidad
+	UltimaReconstruccion string                   `json:"ultima_reconstruccion"`
 }
 
 // NodoArbol representa un nodo en la estructura jerárquica del índice.
 // Los nodos hoja representan archivos; los internos representan directorios.
 type NodoArbol struct {
-        Ruta       string        `json:"ruta"`       // ruta relativa (e.g. "src/auth/")
-        Nombre     string        `json:"nombre"`     // nombre del archivo o directorio
-        EsDir      bool          `json:"es_dir"`
-        Entrada    *EntradaIndice `json:"entrada,omitempty"` // solo si EsDir == false
-        Hijos      []*NodoArbol  `json:"hijos,omitempty"`    // solo si EsDir == true
-        TotalArchivos int        `json:"total_archivos"`     // total de archivos bajo este nodo
-        TotalLineas   int        `json:"total_lineas"`       // total de líneas bajo este nodo
+	Ruta          string         `json:"ruta"`   // ruta relativa (e.g. "src/auth/")
+	Nombre        string         `json:"nombre"` // nombre del archivo o directorio
+	EsDir         bool           `json:"es_dir"`
+	Entrada       *EntradaIndice `json:"entrada,omitempty"` // solo si EsDir == false
+	Hijos         []*NodoArbol   `json:"hijos,omitempty"`   // solo si EsDir == true
+	TotalArchivos int            `json:"total_archivos"`    // total de archivos bajo este nodo
+	TotalLineas   int            `json:"total_lineas"`      // total de líneas bajo este nodo
 }
 
 // OpcionesIndice configura el comportamiento del índice.
 type OpcionesIndice struct {
-        ExcluirExtensiones []string // extensiones a excluir del índice
-        ExcluirDirs        []string // directorios a excluir
+	ExcluirExtensiones []string // extensiones a excluir del índice
+	ExcluirDirs        []string // directorios a excluir
 }
 
 // OpcionesIndicePorDefecto retorna opciones por defecto.
 func OpcionesIndicePorDefecto() OpcionesIndice {
-        return OpcionesIndice{
-                ExcluirExtensiones: []string{
-                        ".log", ".tmp", ".bak", ".swp", ".swo",
-                        ".min.js", ".min.css", ".map", ".lock",
-                        ".sum", ".png", ".jpg", ".jpeg", ".gif",
-                        ".ico", ".svg", ".woff", ".woff2", ".ttf",
-                },
-                ExcluirDirs: []string{
-                        ".git", ".svn", ".hg", "node_modules", "vendor",
-                        "__pycache__", ".pytest_cache", ".idea", ".vscode",
-                        "dist", "build", "bin", ".next", "target", "go-local",
-                },
-        }
+	return OpcionesIndice{
+		ExcluirExtensiones: []string{
+			".log", ".tmp", ".bak", ".swp", ".swo",
+			".min.js", ".min.css", ".map", ".lock",
+			".sum", ".png", ".jpg", ".jpeg", ".gif",
+			".ico", ".svg", ".woff", ".woff2", ".ttf",
+		},
+		ExcluirDirs: []string{
+			".git", ".svn", ".hg", "node_modules", "vendor",
+			"__pycache__", ".pytest_cache", ".idea", ".vscode",
+			"dist", "build", "bin", ".next", "target", "go-local",
+		},
+	}
 }
 
 // GestorIndice gestiona el índice de un proyecto.
 // El índice se reconstruye incrementalmente (nunca desde cero).
 type GestorIndice struct {
-        ruta      string // ruta del archivo indice_global.json
-        mu        sync.RWMutex
-        indice    *IndiceProyecto
-        opciones  OpcionesIndice
-        logFunc   func(string, ...interface{})
+	ruta     string // ruta del archivo indice_global.json
+	mu       sync.RWMutex
+	indice   *IndiceProyecto
+	opciones OpcionesIndice
+	logFunc  func(string, ...interface{})
 }
 
 // NuevoGestor crea un nuevo gestor de índice.
 // Si ya existe un índice en la ruta, lo carga.
 func NuevoGestor(rutaArchivo string) (*GestorIndice, error) {
-        g := &GestorIndice{
-                ruta:     rutaArchivo,
-                opciones: OpcionesIndicePorDefecto(),
-                logFunc:  func(string, ...interface{}) {},
-                indice: &IndiceProyecto{
-                        Version:  "1.0",
-                        Archivos: make(map[string]EntradaIndice),
-                        Lenguajes: make(map[string]int),
-                },
-        }
+	g := &GestorIndice{
+		ruta:     rutaArchivo,
+		opciones: OpcionesIndicePorDefecto(),
+		logFunc:  func(string, ...interface{}) {},
+		indice: &IndiceProyecto{
+			Version:   "1.0",
+			Archivos:  make(map[string]EntradaIndice),
+			Lenguajes: make(map[string]int),
+		},
+	}
 
-        // Cargar existente
-        if datos, err := os.ReadFile(rutaArchivo); err == nil {
-                var existente IndiceProyecto
-                if json.Unmarshal(datos, &existente) == nil && existente.Archivos != nil {
-                        g.indice = &existente
-                        g.logFunc("índice cargado: %d archivos, %d fragmentos",
-                                existente.TotalArchivos, existente.TotalFragmentos)
-                }
-        }
+	// Cargar existente
+	if datos, err := os.ReadFile(rutaArchivo); err == nil {
+		var existente IndiceProyecto
+		if json.Unmarshal(datos, &existente) == nil && existente.Archivos != nil {
+			g.indice = &existente
+			g.logFunc("índice cargado: %d archivos, %d fragmentos",
+				existente.TotalArchivos, existente.TotalFragmentos)
+		}
+	}
 
-        return g, nil
+	return g, nil
 }
 
 // ConLog asigna función de log.
 func (g *GestorIndice) ConLog(fn func(string, ...interface{})) *GestorIndice {
-        if fn != nil {
-                g.logFunc = fn
-        }
-        return g
+	if fn != nil {
+		g.logFunc = fn
+	}
+	return g
 }
 
 // ConOpciones asigna opciones personalizadas.
 func (g *GestorIndice) ConOpciones(opts OpcionesIndice) *GestorIndice {
-        g.opciones = opts
-        return g
+	g.opciones = opts
+	return g
 }
 
 // ═══════════════════════════════════════════════════════
@@ -137,140 +137,140 @@ func (g *GestorIndice) ConOpciones(opts OpcionesIndice) *GestorIndice {
 // Solo actualiza archivos que han cambiado (comparando hash).
 // Nuevos archivos se agregan, archivos eliminados se marcan.
 func (g *GestorIndice) Reconstruir(rutaProyecto string) error {
-        g.mu.Lock()
-        defer g.mu.Unlock()
+	g.mu.Lock()
+	defer g.mu.Unlock()
 
-        g.logFunc("reconstruyendo índice incrementalmente: %s", rutaProyecto)
+	g.logFunc("reconstruyendo índice incrementalmente: %s", rutaProyecto)
 
-        rutaAbs, err := filepath.Abs(rutaProyecto)
-        if err != nil {
-                return fmt.Errorf("error resolviendo ruta: %w", err)
-        }
+	rutaAbs, err := filepath.Abs(rutaProyecto)
+	if err != nil {
+		return fmt.Errorf("error resolviendo ruta: %w", err)
+	}
 
-        // Marcar todos los archivos existentes para detectar eliminados
-        archivosVistos := make(map[string]bool)
-        archivosModificados := 0
-        archivosNuevos := 0
-        archivosEliminados := 0
+	// Marcar todos los archivos existentes para detectar eliminados
+	archivosVistos := make(map[string]bool)
+	archivosModificados := 0
+	archivosNuevos := 0
+	archivosEliminados := 0
 
-        err = filepath.WalkDir(rutaAbs, func(ruta string, d os.DirEntry, walkErr error) error {
-                if walkErr != nil {
-                        return nil
-                }
+	err = filepath.WalkDir(rutaAbs, func(ruta string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
 
-                if d.IsDir() {
-                        base := filepath.Base(ruta)
-                        for _, excluir := range g.opciones.ExcluirDirs {
-                                if base == excluir {
-                                        return filepath.SkipDir
-                                }
-                        }
-                        return nil
-                }
+		if d.IsDir() {
+			base := filepath.Base(ruta)
+			for _, excluir := range g.opciones.ExcluirDirs {
+				if base == excluir {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
 
-                // Ignorar ocultos
-                relativa, err := filepath.Rel(rutaAbs, ruta)
-                if err != nil {
-                        return nil
-                }
-                if relativa == "." || strings.HasPrefix(relativa, ".") {
-                        return nil
-                }
+		// Ignorar ocultos
+		relativa, err := filepath.Rel(rutaAbs, ruta)
+		if err != nil {
+			return nil
+		}
+		if relativa == "." || strings.HasPrefix(relativa, ".") {
+			return nil
+		}
 
-                // Verificar extensión
-                ext := strings.ToLower(filepath.Ext(relativa))
-                for _, excluir := range g.opciones.ExcluirExtensiones {
-                        if ext == excluir {
-                                return nil
-                        }
-                }
+		// Verificar extensión
+		ext := strings.ToLower(filepath.Ext(relativa))
+		for _, excluir := range g.opciones.ExcluirExtensiones {
+			if ext == excluir {
+				return nil
+			}
+		}
 
-                archivosVistos[relativa] = true
+		archivosVistos[relativa] = true
 
-                // Stat para tamaño y mtime (detección rápida de cambios)
-                info, errStat := d.Info()
-                if errStat != nil {
-                        return nil
-                }
+		// Stat para tamaño y mtime (detección rápida de cambios)
+		info, errStat := d.Info()
+		if errStat != nil {
+			return nil
+		}
 
-                // Verificación rápida: si tamaño y mtime no cambiaron, saltar hash
-                existente, existe := g.indice.Archivos[relativa]
-                if existe && existente.Tamano == info.Size() && existente.Mtime == info.ModTime().UnixNano() {
-                        return nil // sin cambios (rápido)
-                }
+		// Verificación rápida: si tamaño y mtime no cambiaron, saltar hash
+		existente, existe := g.indice.Archivos[relativa]
+		if existe && existente.Tamano == info.Size() && existente.Mtime == info.ModTime().UnixNano() {
+			return nil // sin cambios (rápido)
+		}
 
-                // Leer archivo y calcular hash (detección lenta pero precisa)
-                contenido, err := os.ReadFile(ruta)
-                if err != nil {
-                        return nil
-                }
+		// Leer archivo y calcular hash (detección lenta pero precisa)
+		contenido, err := os.ReadFile(ruta)
+		if err != nil {
+			return nil
+		}
 
-                hashActual := hashContenido(contenido)
-                lineas := strings.Count(string(contenido), "\n")
-                if len(contenido) > 0 && contenido[len(contenido)-1] != '\n' {
-                        lineas++
-                }
+		hashActual := hashContenido(contenido)
+		lineas := strings.Count(string(contenido), "\n")
+		if len(contenido) > 0 && contenido[len(contenido)-1] != '\n' {
+			lineas++
+		}
 
-                // Verificación final con hash
-                if existe && existente.HashContenido == hashActual {
-                        // El contenido no cambió pero sí el mtime; actualizar metadata
-                        existente.Mtime = info.ModTime().UnixNano()
-                        existente.Tamano = info.Size()
-                        g.indice.Archivos[relativa] = existente
-                        return nil
-                }
+		// Verificación final con hash
+		if existe && existente.HashContenido == hashActual {
+			// El contenido no cambió pero sí el mtime; actualizar metadata
+			existente.Mtime = info.ModTime().UnixNano()
+			existente.Tamano = info.Size()
+			g.indice.Archivos[relativa] = existente
+			return nil
+		}
 
-                // Crear o actualizar entrada
-                lenguaje := detectarLenguajeIndice(ext)
-                entrada := EntradaIndice{
-                        Ruta:                relativa,
-                        Lenguaje:            lenguaje,
-                        Lineas:              lineas,
-                        Resumen:             fmt.Sprintf("%s, %d líneas", lenguaje, lineas),
-                        HashContenido:       hashActual,
-                        Tamano:              info.Size(),
-                        Mtime:               info.ModTime().UnixNano(),
-                        UltimaActualizacion: time.Now().UTC().Format(time.RFC3339),
-                }
+		// Crear o actualizar entrada
+		lenguaje := detectarLenguajeIndice(ext)
+		entrada := EntradaIndice{
+			Ruta:                relativa,
+			Lenguaje:            lenguaje,
+			Lineas:              lineas,
+			Resumen:             fmt.Sprintf("%s, %d líneas", lenguaje, lineas),
+			HashContenido:       hashActual,
+			Tamano:              info.Size(),
+			Mtime:               info.ModTime().UnixNano(),
+			UltimaActualizacion: time.Now().UTC().Format(time.RFC3339),
+		}
 
-                // Preservar fragmento IDs si el archivo ya existía
-                if existe {
-                        entrada.FragmentoIDs = existente.FragmentoIDs
-                        archivosModificados++
-                } else {
-                        archivosNuevos++
-                }
+		// Preservar fragmento IDs si el archivo ya existía
+		if existe {
+			entrada.FragmentoIDs = existente.FragmentoIDs
+			archivosModificados++
+		} else {
+			archivosNuevos++
+		}
 
-                g.indice.Archivos[relativa] = entrada
-                return nil
-        })
+		g.indice.Archivos[relativa] = entrada
+		return nil
+	})
 
-        if err != nil {
-                return fmt.Errorf("error recorriendo directorio: %w", err)
-        }
+	if err != nil {
+		return fmt.Errorf("error recorriendo directorio: %w", err)
+	}
 
-        // Detectar archivos eliminados
-        for ruta := range g.indice.Archivos {
-                if !archivosVistos[ruta] {
-                        delete(g.indice.Archivos, ruta)
-                        archivosEliminados++
-                }
-        }
+	// Detectar archivos eliminados
+	for ruta := range g.indice.Archivos {
+		if !archivosVistos[ruta] {
+			delete(g.indice.Archivos, ruta)
+			archivosEliminados++
+		}
+	}
 
-        // Recalcular estadísticas
-        g.recalcularEstadisticas(rutaAbs)
+	// Recalcular estadísticas
+	g.recalcularEstadisticas(rutaAbs)
 
-        g.indice.UltimaReconstruccion = time.Now().UTC().Format(time.RFC3339)
+	g.indice.UltimaReconstruccion = time.Now().UTC().Format(time.RFC3339)
 
-        // Persistir
-        if err := g.guardar(); err != nil {
-                return err
-        }
+	// Persistir
+	if err := g.guardar(); err != nil {
+		return err
+	}
 
-        g.logFunc("índice reconstruido: +%d nuevos, ~%d modificados, -%d eliminados",
-                archivosNuevos, archivosModificados, archivosEliminados)
+	g.logFunc("índice reconstruido: +%d nuevos, ~%d modificados, -%d eliminados",
+		archivosNuevos, archivosModificados, archivosEliminados)
 
-        return nil
+	return nil
 }
 
 // ═══════════════════════════════════════════════════════
@@ -279,25 +279,25 @@ func (g *GestorIndice) Reconstruir(rutaProyecto string) error {
 
 // AsignarFragmentos asigna IDs de fragmentos a un archivo en el índice.
 func (g *GestorIndice) AsignarFragmentos(rutaRelativa string, ids []string) error {
-        g.mu.Lock()
-        defer g.mu.Unlock()
+	g.mu.Lock()
+	defer g.mu.Unlock()
 
-        entrada, existe := g.indice.Archivos[rutaRelativa]
-        if !existe {
-                return fmt.Errorf("archivo %s no está en el índice", rutaRelativa)
-        }
+	entrada, existe := g.indice.Archivos[rutaRelativa]
+	if !existe {
+		return fmt.Errorf("archivo %s no está en el índice", rutaRelativa)
+	}
 
-        entrada.FragmentoIDs = ids
-        entrada.UltimaActualizacion = time.Now().UTC().Format(time.RFC3339)
-        g.indice.Archivos[rutaRelativa] = entrada
+	entrada.FragmentoIDs = ids
+	entrada.UltimaActualizacion = time.Now().UTC().Format(time.RFC3339)
+	g.indice.Archivos[rutaRelativa] = entrada
 
-        // Recalcular total de fragmentos
-        g.indice.TotalFragmentos = 0
-        for _, e := range g.indice.Archivos {
-                g.indice.TotalFragmentos += len(e.FragmentoIDs)
-        }
+	// Recalcular total de fragmentos
+	g.indice.TotalFragmentos = 0
+	for _, e := range g.indice.Archivos {
+		g.indice.TotalFragmentos += len(e.FragmentoIDs)
+	}
 
-        return g.guardar()
+	return g.guardar()
 }
 
 // ═══════════════════════════════════════════════════════
@@ -306,123 +306,123 @@ func (g *GestorIndice) AsignarFragmentos(rutaRelativa string, ids []string) erro
 
 // Obtener retorna el índice completo (copia).
 func (g *GestorIndice) Obtener() *IndiceProyecto {
-        g.mu.RLock()
-        defer g.mu.RUnlock()
-        
-        copia := *g.indice
-        copia.Archivos = make(map[string]EntradaIndice)
-        for k, v := range g.indice.Archivos {
-                copia.Archivos[k] = v
-        }
-        copia.Lenguajes = make(map[string]int)
-        for k, v := range g.indice.Lenguajes {
-                copia.Lenguajes[k] = v
-        }
-        return &copia
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	copia := *g.indice
+	copia.Archivos = make(map[string]EntradaIndice)
+	for k, v := range g.indice.Archivos {
+		copia.Archivos[k] = v
+	}
+	copia.Lenguajes = make(map[string]int)
+	for k, v := range g.indice.Lenguajes {
+		copia.Lenguajes[k] = v
+	}
+	return &copia
 }
 
 // Buscar busca archivos en el índice por patrón (substring case-insensitive).
 func (g *GestorIndice) Buscar(patron string) []EntradaIndice {
-        g.mu.RLock()
-        defer g.mu.RUnlock()
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 
-        patron = strings.ToLower(patron)
-        var resultado []EntradaIndice
+	patron = strings.ToLower(patron)
+	var resultado []EntradaIndice
 
-        for _, entrada := range g.indice.Archivos {
-                if strings.Contains(strings.ToLower(entrada.Ruta), patron) ||
-                        strings.Contains(strings.ToLower(entrada.Resumen), patron) {
-                        resultado = append(resultado, entrada)
-                }
-        }
+	for _, entrada := range g.indice.Archivos {
+		if strings.Contains(strings.ToLower(entrada.Ruta), patron) ||
+			strings.Contains(strings.ToLower(entrada.Resumen), patron) {
+			resultado = append(resultado, entrada)
+		}
+	}
 
-        sort.Slice(resultado, func(i, j int) bool {
-                return resultado[i].Ruta < resultado[j].Ruta
-        })
+	sort.Slice(resultado, func(i, j int) bool {
+		return resultado[i].Ruta < resultado[j].Ruta
+	})
 
-        return resultado
+	return resultado
 }
 
 // ObtenerArchivo retorna la entrada de un archivo específico.
 func (g *GestorIndice) ObtenerArchivo(ruta string) (*EntradaIndice, error) {
-        g.mu.RLock()
-        defer g.mu.RUnlock()
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 
-        entrada, existe := g.indice.Archivos[ruta]
-        if !existe {
-                return nil, fmt.Errorf("archivo %s no encontrado en el índice", ruta)
-        }
-        return &entrada, nil
+	entrada, existe := g.indice.Archivos[ruta]
+	if !existe {
+		return nil, fmt.Errorf("archivo %s no encontrado en el índice", ruta)
+	}
+	return &entrada, nil
 }
 
 // ObtenerPorLenguaje retorna todas las entradas de un lenguaje.
 func (g *GestorIndice) ObtenerPorLenguaje(lenguaje string) []EntradaIndice {
-        g.mu.RLock()
-        defer g.mu.RUnlock()
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 
-        var resultado []EntradaIndice
-        for _, entrada := range g.indice.Archivos {
-                if entrada.Lenguaje == lenguaje {
-                        resultado = append(resultado, entrada)
-                }
-        }
+	var resultado []EntradaIndice
+	for _, entrada := range g.indice.Archivos {
+		if entrada.Lenguaje == lenguaje {
+			resultado = append(resultado, entrada)
+		}
+	}
 
-        sort.Slice(resultado, func(i, j int) bool {
-                return resultado[i].Ruta < resultado[j].Ruta
-        })
+	sort.Slice(resultado, func(i, j int) bool {
+		return resultado[i].Ruta < resultado[j].Ruta
+	})
 
-        return resultado
+	return resultado
 }
 
 // ObtenerFragmentosIDs retorna los IDs de fragmentos de un archivo.
 func (g *GestorIndice) ObtenerFragmentosIDs(ruta string) []string {
-        g.mu.RLock()
-        defer g.mu.RUnlock()
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 
-        entrada, existe := g.indice.Archivos[ruta]
-        if !existe {
-                return nil
-        }
-        return entrada.FragmentoIDs
+	entrada, existe := g.indice.Archivos[ruta]
+	if !existe {
+		return nil
+	}
+	return entrada.FragmentoIDs
 }
 
 // ArchivosModificados retorna los archivos que han cambiado desde la última indexación.
 // Optimización: primero compara mtime y tamaño (barato), y solo hace hash si
 // esos cambiaron. Esto reduce drásticamente los reads de disco en proyectos grandes.
 func (g *GestorIndice) ArchivosModificados(rutaProyecto string) ([]string, error) {
-        g.mu.RLock()
-        defer g.mu.RUnlock()
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 
-        rutaAbs, _ := filepath.Abs(rutaProyecto)
-        var modificados []string
+	rutaAbs, _ := filepath.Abs(rutaProyecto)
+	var modificados []string
 
-        for ruta, entrada := range g.indice.Archivos {
-                rutaCompleta := filepath.Join(rutaAbs, ruta)
-                info, err := os.Stat(rutaCompleta)
-                if err != nil {
-                        // Archivo eliminado
-                        modificados = append(modificados, ruta)
-                        continue
-                }
+	for ruta, entrada := range g.indice.Archivos {
+		rutaCompleta := filepath.Join(rutaAbs, ruta)
+		info, err := os.Stat(rutaCompleta)
+		if err != nil {
+			// Archivo eliminado
+			modificados = append(modificados, ruta)
+			continue
+		}
 
-                // Verificación rápida: mtime y tamaño sin cambios → no modificado
-                if entrada.Mtime == info.ModTime().UnixNano() && entrada.Tamano == info.Size() {
-                        continue
-                }
+		// Verificación rápida: mtime y tamaño sin cambios → no modificado
+		if entrada.Mtime == info.ModTime().UnixNano() && entrada.Tamano == info.Size() {
+			continue
+		}
 
-                // Verificación lenta: hash del contenido
-                contenido, err := os.ReadFile(rutaCompleta)
-                if err != nil {
-                        modificados = append(modificados, ruta)
-                        continue
-                }
-                hashActual := hashContenido(contenido)
-                if hashActual != entrada.HashContenido {
-                        modificados = append(modificados, ruta)
-                }
-        }
+		// Verificación lenta: hash del contenido
+		contenido, err := os.ReadFile(rutaCompleta)
+		if err != nil {
+			modificados = append(modificados, ruta)
+			continue
+		}
+		hashActual := hashContenido(contenido)
+		if hashActual != entrada.HashContenido {
+			modificados = append(modificados, ruta)
+		}
+	}
 
-        return modificados, nil
+	return modificados, nil
 }
 
 // ═══════════════════════════════════════════════════════
@@ -433,129 +433,130 @@ func (g *GestorIndice) ArchivosModificados(rutaProyecto string) ([]string, error
 // de archivos. Es la "vista de árbol" que pide la especificación de Fase 3.
 //
 // Ejemplo:
-//   src/                 (dir, 3 archivos, 850 líneas)
-//     auth/
-//       jwt.go           (file, 120 líneas)
-//       oauth.go         (file, 80 líneas)
-//     main.go            (file, 650 líneas)
-//   README.md            (file, 50 líneas)
+//
+//	src/                 (dir, 3 archivos, 850 líneas)
+//	  auth/
+//	    jwt.go           (file, 120 líneas)
+//	    oauth.go         (file, 80 líneas)
+//	  main.go            (file, 650 líneas)
+//	README.md            (file, 50 líneas)
 func (g *GestorIndice) Arbol() *NodoArbol {
-        g.mu.RLock()
-        defer g.mu.RUnlock()
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 
-        raiz := &NodoArbol{
-                Ruta:   "",
-                Nombre: g.indice.Proyecto,
-                EsDir:  true,
-        }
+	raiz := &NodoArbol{
+		Ruta:   "",
+		Nombre: g.indice.Proyecto,
+		EsDir:  true,
+	}
 
-        // Indexar por ruta de directorio padre (normalizando "." a "")
-        porDir := make(map[string][]EntradaIndice)
-        for _, entrada := range g.indice.Archivos {
-                dir := filepath.Dir(entrada.Ruta)
-                if dir == "." {
-                        dir = ""
-                }
-                porDir[dir] = append(porDir[dir], entrada)
-        }
+	// Indexar por ruta de directorio padre (normalizando "." a "")
+	porDir := make(map[string][]EntradaIndice)
+	for _, entrada := range g.indice.Archivos {
+		dir := filepath.Dir(entrada.Ruta)
+		if dir == "." {
+			dir = ""
+		}
+		porDir[dir] = append(porDir[dir], entrada)
+	}
 
-        // Construir recursivamente
-        g.construirArbol(raiz, "", porDir)
+	// Construir recursivamente
+	g.construirArbol(raiz, "", porDir)
 
-        // Calcular totales
-        raiz.TotalArchivos, raiz.TotalLineas = g.calcularTotales(raiz)
+	// Calcular totales
+	raiz.TotalArchivos, raiz.TotalLineas = g.calcularTotales(raiz)
 
-        return raiz
+	return raiz
 }
 
 // construirArbol llena los hijos de un nodo recursivamente.
 func (g *GestorIndice) construirArbol(nodo *NodoArbol, rutaActual string, porDir map[string][]EntradaIndice) {
-        // Agregar archivos de este directorio
-        archivos := porDir[rutaActual]
-        sort.Slice(archivos, func(i, j int) bool {
-                return archivos[i].Ruta < archivos[j].Ruta
-        })
-        for i := range archivos {
-                entrada := archivos[i] // copia para tomar dirección
-                nombre := filepath.Base(entrada.Ruta)
-                nodo.Hijos = append(nodo.Hijos, &NodoArbol{
-                        Ruta:    entrada.Ruta,
-                        Nombre:  nombre,
-                        EsDir:   false,
-                        Entrada: &entrada,
-                })
-        }
+	// Agregar archivos de este directorio
+	archivos := porDir[rutaActual]
+	sort.Slice(archivos, func(i, j int) bool {
+		return archivos[i].Ruta < archivos[j].Ruta
+	})
+	for i := range archivos {
+		entrada := archivos[i] // copia para tomar dirección
+		nombre := filepath.Base(entrada.Ruta)
+		nodo.Hijos = append(nodo.Hijos, &NodoArbol{
+			Ruta:    entrada.Ruta,
+			Nombre:  nombre,
+			EsDir:   false,
+			Entrada: &entrada,
+		})
+	}
 
-        // Encontrar subdirectorios (componente inmediato bajo rutaActual)
-        subdirs := make(map[string]bool)
-        prefijo := ""
-        if rutaActual != "" {
-                prefijo = rutaActual + "/"
-        }
-        for dir := range porDir {
-                // Normalizar "." a ""
-                if dir == "." {
-                        dir = ""
-                }
-                if dir == rutaActual {
-                        continue
-                }
-                if rutaActual == "" {
-                        // dir es un path de primer nivel (e.g. "src")
-                        componente := strings.SplitN(dir, "/", 2)[0]
-                        if componente != "" {
-                                subdirs[componente] = true
-                        }
-                } else if strings.HasPrefix(dir, prefijo) {
-                        resto := strings.TrimPrefix(dir, prefijo)
-                        componente := strings.SplitN(resto, "/", 2)[0]
-                        if componente != "" {
-                                subdirs[componente] = true
-                        }
-                }
-        }
+	// Encontrar subdirectorios (componente inmediato bajo rutaActual)
+	subdirs := make(map[string]bool)
+	prefijo := ""
+	if rutaActual != "" {
+		prefijo = rutaActual + "/"
+	}
+	for dir := range porDir {
+		// Normalizar "." a ""
+		if dir == "." {
+			dir = ""
+		}
+		if dir == rutaActual {
+			continue
+		}
+		if rutaActual == "" {
+			// dir es un path de primer nivel (e.g. "src")
+			componente := strings.SplitN(dir, "/", 2)[0]
+			if componente != "" {
+				subdirs[componente] = true
+			}
+		} else if strings.HasPrefix(dir, prefijo) {
+			resto := strings.TrimPrefix(dir, prefijo)
+			componente := strings.SplitN(resto, "/", 2)[0]
+			if componente != "" {
+				subdirs[componente] = true
+			}
+		}
+	}
 
-        // Recursión sobre subdirectorios (ordenados para output determinista)
-        subs := make([]string, 0, len(subdirs))
-        for s := range subdirs {
-                subs = append(subs, s)
-        }
-        sort.Strings(subs)
+	// Recursión sobre subdirectorios (ordenados para output determinista)
+	subs := make([]string, 0, len(subdirs))
+	for s := range subdirs {
+		subs = append(subs, s)
+	}
+	sort.Strings(subs)
 
-        for _, subdir := range subs {
-                rutaHija := subdir
-                if rutaActual != "" {
-                        rutaHija = rutaActual + "/" + subdir
-                }
-                hijo := &NodoArbol{
-                        Ruta:   rutaHija + "/",
-                        Nombre: subdir,
-                        EsDir:  true,
-                }
-                g.construirArbol(hijo, rutaHija, porDir)
-                nodo.Hijos = append(nodo.Hijos, hijo)
-        }
+	for _, subdir := range subs {
+		rutaHija := subdir
+		if rutaActual != "" {
+			rutaHija = rutaActual + "/" + subdir
+		}
+		hijo := &NodoArbol{
+			Ruta:   rutaHija + "/",
+			Nombre: subdir,
+			EsDir:  true,
+		}
+		g.construirArbol(hijo, rutaHija, porDir)
+		nodo.Hijos = append(nodo.Hijos, hijo)
+	}
 }
 
 // calcularTotales recorre el árbol recursivamente y suma archivos y líneas.
 // Actualiza TotalArchivos y TotalLineas en CADA nodo (no solo en la raíz).
 func (g *GestorIndice) calcularTotales(nodo *NodoArbol) (totalArchivos, totalLineas int) {
-        if !nodo.EsDir {
-                if nodo.Entrada != nil {
-                        nodo.TotalArchivos = 1
-                        nodo.TotalLineas = nodo.Entrada.Lineas
-                        return 1, nodo.Entrada.Lineas
-                }
-                return 0, 0
-        }
-        for _, hijo := range nodo.Hijos {
-                a, l := g.calcularTotales(hijo)
-                totalArchivos += a
-                totalLineas += l
-        }
-        nodo.TotalArchivos = totalArchivos
-        nodo.TotalLineas = totalLineas
-        return
+	if !nodo.EsDir {
+		if nodo.Entrada != nil {
+			nodo.TotalArchivos = 1
+			nodo.TotalLineas = nodo.Entrada.Lineas
+			return 1, nodo.Entrada.Lineas
+		}
+		return 0, 0
+	}
+	for _, hijo := range nodo.Hijos {
+		a, l := g.calcularTotales(hijo)
+		totalArchivos += a
+		totalLineas += l
+	}
+	nodo.TotalArchivos = totalArchivos
+	nodo.TotalLineas = totalLineas
+	return
 }
 
 // ═══════════════════════════════════════════════════════
@@ -564,32 +565,32 @@ func (g *GestorIndice) calcularTotales(nodo *NodoArbol) (totalArchivos, totalLin
 
 // guardar persiste el índice a JSON.
 func (g *GestorIndice) guardar() error {
-        if err := os.MkdirAll(filepath.Dir(g.ruta), 0755); err != nil {
-                return err
-        }
+	if err := os.MkdirAll(filepath.Dir(g.ruta), 0755); err != nil {
+		return err
+	}
 
-        datos, err := json.MarshalIndent(g.indice, "", "  ")
-        if err != nil {
-                return fmt.Errorf("error serializando índice: %w", err)
-        }
+	datos, err := json.MarshalIndent(g.indice, "", "  ")
+	if err != nil {
+		return fmt.Errorf("error serializando índice: %w", err)
+	}
 
-        if err := os.WriteFile(g.ruta, datos, 0644); err != nil {
-                return fmt.Errorf("error guardando índice: %w", err)
-        }
+	if err := os.WriteFile(g.ruta, datos, 0644); err != nil {
+		return fmt.Errorf("error guardando índice: %w", err)
+	}
 
-        return nil
+	return nil
 }
 
 // GuardarEn guarda el índice en una ruta específica (para testing).
 func (g *GestorIndice) GuardarEn(ruta string) error {
-        g.mu.Lock()
-        defer g.mu.Unlock()
+	g.mu.Lock()
+	defer g.mu.Unlock()
 
-        rutaAnterior := g.ruta
-        g.ruta = ruta
-        err := g.guardar()
-        g.ruta = rutaAnterior
-        return err
+	rutaAnterior := g.ruta
+	g.ruta = ruta
+	err := g.guardar()
+	g.ruta = rutaAnterior
+	return err
 }
 
 // ═══════════════════════════════════════════════════════
@@ -598,83 +599,83 @@ func (g *GestorIndice) GuardarEn(ruta string) error {
 
 // recalcularEstadisticas actualiza los contadores del índice.
 func (g *GestorIndice) recalcularEstadisticas(rutaAbs string) {
-        g.indice.TotalArchivos = len(g.indice.Archivos)
-        g.indice.TotalFragmentos = 0
-        g.indice.Lenguajes = make(map[string]int)
-        g.indice.RutaAbsoluta = rutaAbs
-        g.indice.Proyecto = filepath.Base(rutaAbs)
-        g.indice.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	g.indice.TotalArchivos = len(g.indice.Archivos)
+	g.indice.TotalFragmentos = 0
+	g.indice.Lenguajes = make(map[string]int)
+	g.indice.RutaAbsoluta = rutaAbs
+	g.indice.Proyecto = filepath.Base(rutaAbs)
+	g.indice.Timestamp = time.Now().UTC().Format(time.RFC3339)
 
-        for _, entrada := range g.indice.Archivos {
-                g.indice.TotalFragmentos += len(entrada.FragmentoIDs)
-                if entrada.Lenguaje != "" {
-                        g.indice.Lenguajes[entrada.Lenguaje]++
-                }
-        }
+	for _, entrada := range g.indice.Archivos {
+		g.indice.TotalFragmentos += len(entrada.FragmentoIDs)
+		if entrada.Lenguaje != "" {
+			g.indice.Lenguajes[entrada.Lenguaje]++
+		}
+	}
 }
 
 // hashContenido genera un hash SHA256 del contenido.
 func hashContenido(contenido []byte) string {
-        h := sha256.Sum256(contenido)
-        return fmt.Sprintf("%x", h[:8]) // primeros 8 bytes = 16 chars hex
+	h := sha256.Sum256(contenido)
+	return fmt.Sprintf("%x", h[:8]) // primeros 8 bytes = 16 chars hex
 }
 
 // detectarLenguajeIndice detecta lenguaje por extensión.
 // Debe ser coherente con fragmentos.detectarLenguajeExt y mapa.detectarLenguaje.
 func detectarLenguajeIndice(ext string) string {
-        switch ext {
-        case ".go":
-                return "go"
-        case ".py":
-                return "python"
-        case ".js", ".mjs", ".cjs":
-                return "javascript"
-        case ".ts", ".tsx":
-                return "typescript"
-        case ".jsx":
-                return "javascript"
-        case ".yaml", ".yml":
-                return "yaml"
-        case ".json":
-                return "json"
-        case ".md", ".markdown":
-                return "markdown"
-        case ".html", ".htm":
-                return "html"
-        case ".css", ".scss", ".sass", ".less":
-                return "css"
-        case ".rs":
-                return "rust"
-        case ".java":
-                return "java"
-        case ".c", ".h":
-                return "c"
-        case ".cpp", ".hpp", ".cc", ".cxx":
-                return "cpp"
-        case ".sh", ".bash":
-                return "shell"
-        case ".toml":
-                return "toml"
-        case ".rb":
-                return "ruby"
-        case ".php":
-                return "php"
-        case ".kt", ".kts":
-                return "kotlin"
-        case ".swift":
-                return "swift"
-        case ".scala":
-                return "scala"
-        case ".lua":
-                return "lua"
-        case ".r":
-                return "r"
-        case ".sql":
-                return "sql"
-        default:
-                if ext == "" {
-                        return ""
-                }
-                return strings.TrimPrefix(ext, ".")
-        }
+	switch ext {
+	case ".go":
+		return "go"
+	case ".py":
+		return "python"
+	case ".js", ".mjs", ".cjs":
+		return "javascript"
+	case ".ts", ".tsx":
+		return "typescript"
+	case ".jsx":
+		return "javascript"
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".json":
+		return "json"
+	case ".md", ".markdown":
+		return "markdown"
+	case ".html", ".htm":
+		return "html"
+	case ".css", ".scss", ".sass", ".less":
+		return "css"
+	case ".rs":
+		return "rust"
+	case ".java":
+		return "java"
+	case ".c", ".h":
+		return "c"
+	case ".cpp", ".hpp", ".cc", ".cxx":
+		return "cpp"
+	case ".sh", ".bash":
+		return "shell"
+	case ".toml":
+		return "toml"
+	case ".rb":
+		return "ruby"
+	case ".php":
+		return "php"
+	case ".kt", ".kts":
+		return "kotlin"
+	case ".swift":
+		return "swift"
+	case ".scala":
+		return "scala"
+	case ".lua":
+		return "lua"
+	case ".r":
+		return "r"
+	case ".sql":
+		return "sql"
+	default:
+		if ext == "" {
+			return ""
+		}
+		return strings.TrimPrefix(ext, ".")
+	}
 }

@@ -1,9 +1,9 @@
 package auto_creacion
 
 import (
-        "fmt"
-        "regexp"
-        "strings"
+	"fmt"
+	"regexp"
+	"strings"
 )
 
 // ============================================================================
@@ -145,20 +145,20 @@ func manejarEjecutar(params map[string]interface{}) respuesta {
 // PlantillaPrompt genera el prompt completo que se envía al LLM para producir
 // el código Go de una herramienta.
 func PlantillaPrompt(spec SpecHerramienta) string {
-        var paramsJSON strings.Builder
-        paramsJSON.WriteString("[\n")
-        for i, p := range spec.Parametros {
-                paramsJSON.WriteString("    ")
-                paramsJSON.WriteString(fmt.Sprintf("{nombre: %q, tipo: %q, requerido: %v, default: %v, descripcion: %q}",
-                        p.Nombre, p.Tipo, p.Requerido, p.Default, p.Descripcion))
-                if i < len(spec.Parametros)-1 {
-                        paramsJSON.WriteString(",")
-                }
-                paramsJSON.WriteString("\n")
-        }
-        paramsJSON.WriteString("]")
+	var paramsJSON strings.Builder
+	paramsJSON.WriteString("[\n")
+	for i, p := range spec.Parametros {
+		paramsJSON.WriteString("    ")
+		paramsJSON.WriteString(fmt.Sprintf("{nombre: %q, tipo: %q, requerido: %v, default: %v, descripcion: %q}",
+			p.Nombre, p.Tipo, p.Requerido, p.Default, p.Descripcion))
+		if i < len(spec.Parametros)-1 {
+			paramsJSON.WriteString(",")
+		}
+		paramsJSON.WriteString("\n")
+	}
+	paramsJSON.WriteString("]")
 
-        return fmt.Sprintf(`Eres un ingeniero Go senior. Genera un programa Go COMPLETO y COMPILABLE que implemente una herramienta para el agente Liz.
+	return fmt.Sprintf(`Eres un ingeniero Go senior. Genera un programa Go COMPLETO y COMPILABLE que implemente una herramienta para el agente Liz.
 
 == ESPECIFICACIÓN DE LA HERRAMIENTA ==
 Nombre: %s
@@ -188,24 +188,24 @@ Categoría: %s
 %s
 
 == OUTPUT ==
-Devuelve EXCLUSIVAMENTE el código Go dentro de un bloque ` + "```go ... ```" + `.
+Devuelve EXCLUSIVAMENTE el código Go dentro de un bloque `+"```go ... ```"+`.
 Sin explicaciones antes ni después. El código debe ser completo y funcional.`,
-                spec.Nombre, spec.Descripcion, paramsJSON.String(), spec.Categoria,
-                PlantillaProtocolo, PlantillaEjemplo)
+		spec.Nombre, spec.Descripcion, paramsJSON.String(), spec.Categoria,
+		PlantillaProtocolo, PlantillaEjemplo)
 }
 
 // PlantillaPromptDeteccion genera el prompt para el Detector.
 func PlantillaPromptDeteccion(descripcion string, catalogo []InfoCatalogo) string {
-        var cat strings.Builder
-        if len(catalogo) == 0 {
-                cat.WriteString("(catálogo vacío)")
-        } else {
-                for _, c := range catalogo {
-                        cat.WriteString(fmt.Sprintf("  - %s: %s\n", c.Nombre, c.Descripcion))
-                }
-        }
+	var cat strings.Builder
+	if len(catalogo) == 0 {
+		cat.WriteString("(catálogo vacío)")
+	} else {
+		for _, c := range catalogo {
+			cat.WriteString(fmt.Sprintf("  - %s: %s\n", c.Nombre, c.Descripcion))
+		}
+	}
 
-        return fmt.Sprintf(`Eres un analista de sistemas. Analiza la siguiente petición del usuario y determina qué herramientas NUEVAS necesita el agente Liz para completarla.
+	return fmt.Sprintf(`Eres un analista de sistemas. Analiza la siguiente petición del usuario y determina qué herramientas NUEVAS necesita el agente Liz para completarla.
 
 == PETICIÓN DEL USUARIO ==
 %s
@@ -227,7 +227,7 @@ func PlantillaPromptDeteccion(descripcion string, catalogo []InfoCatalogo) strin
 "string", "int", "bool", "float", "array", "object"
 
 == OUTPUT ==
-Devuelve EXCLUSIVAMENTE un bloque ` + "```json ... ```" + ` con este formato:
+Devuelve EXCLUSIVAMENTE un bloque `+"```json ... ```"+` con este formato:
 {
   "faltantes": [
     {
@@ -245,7 +245,7 @@ Devuelve EXCLUSIVAMENTE un bloque ` + "```json ... ```" + ` con este formato:
 }
 
 Si no se necesitan herramientas nuevas, devuelve {"faltantes": [], "razon": "..."}.`,
-                descripcion, cat.String())
+		descripcion, cat.String())
 }
 
 // ============================================================================
@@ -261,19 +261,19 @@ var regexMarkdownGo = regexp.MustCompile("(?s)```(?:go|golang)?\\s*\n(.*?)```")
 //  2. Si no, toma todo el texto que empiece con "package main".
 //  3. Si tampoco, retorna el input tal cual (el Compilador reportará el error).
 func ExtraerFuenteGo(raw string) string {
-        // Intentar extraer de bloque markdown
-        if matches := regexMarkdownGo.FindStringSubmatch(raw); len(matches) >= 2 {
-                return strings.TrimSpace(matches[1])
-        }
+	// Intentar extraer de bloque markdown
+	if matches := regexMarkdownGo.FindStringSubmatch(raw); len(matches) >= 2 {
+		return strings.TrimSpace(matches[1])
+	}
 
-        // Buscar "package main" y tomar desde ahí
-        idx := strings.Index(raw, "package main")
-        if idx >= 0 {
-                return strings.TrimSpace(raw[idx:])
-        }
+	// Buscar "package main" y tomar desde ahí
+	idx := strings.Index(raw, "package main")
+	if idx >= 0 {
+		return strings.TrimSpace(raw[idx:])
+	}
 
-        // Último recurso: devolver tal cual
-        return strings.TrimSpace(raw)
+	// Último recurso: devolver tal cual
+	return strings.TrimSpace(raw)
 }
 
 // ValidarFuenteGo hace comprobaciones básicas antes de compilar.
@@ -282,23 +282,23 @@ func ExtraerFuenteGo(raw string) string {
 // Es tolerante con comentarios iniciales: el "package main" puede estar
 // precedido por un header de comentarios (ver InyectarHeader).
 func ValidarFuenteGo(fuente string) error {
-        if fuente == "" {
-                return fmt.Errorf("fuente vacío")
-        }
-        // Buscar "package main" en cualquier parte del fuente (no solo al inicio,
-        // porque InyectarHeader añade un comentario antes).
-        if !strings.Contains(fuente, "package main") {
-                return fmt.Errorf("el fuente debe declarar 'package main'")
-        }
-        if !strings.Contains(fuente, "func main()") {
-                return fmt.Errorf("el fuente debe tener func main()")
-        }
-        return nil
+	if fuente == "" {
+		return fmt.Errorf("fuente vacío")
+	}
+	// Buscar "package main" en cualquier parte del fuente (no solo al inicio,
+	// porque InyectarHeader añade un comentario antes).
+	if !strings.Contains(fuente, "package main") {
+		return fmt.Errorf("el fuente debe declarar 'package main'")
+	}
+	if !strings.Contains(fuente, "func main()") {
+		return fmt.Errorf("el fuente debe tener func main()")
+	}
+	return nil
 }
 
 // InyectarHeader agrega un comentario al inicio del fuente con metadata.
 func InyectarHeader(fuente string, spec SpecHerramienta, modelo string) string {
-        header := fmt.Sprintf(`// ============================================================================
+	header := fmt.Sprintf(`// ============================================================================
 // Herramienta auto-creada por Liz (Fase 6)
 //   Nombre:    %s
 //   Categoría: %s
@@ -308,13 +308,13 @@ func InyectarHeader(fuente string, spec SpecHerramienta, modelo string) string {
 // ============================================================================
 
 `,
-                spec.Nombre, spec.Categoria, modelo, spec.Descripcion, spec.Nombre)
+		spec.Nombre, spec.Categoria, modelo, spec.Descripcion, spec.Nombre)
 
-        // Remover cualquier "package main" existente y reemplazar con header + package main
-        fuente = strings.TrimSpace(fuente)
-        if strings.HasPrefix(fuente, "package main") {
-                return header + fuente
-        }
-        // Si no empieza con package main, prependemos igual (ValidarFuenteGo fallará luego)
-        return header + fuente
+	// Remover cualquier "package main" existente y reemplazar con header + package main
+	fuente = strings.TrimSpace(fuente)
+	if strings.HasPrefix(fuente, "package main") {
+		return header + fuente
+	}
+	// Si no empieza con package main, prependemos igual (ValidarFuenteGo fallará luego)
+	return header + fuente
 }

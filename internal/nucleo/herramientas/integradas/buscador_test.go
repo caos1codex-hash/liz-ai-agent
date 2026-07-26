@@ -121,10 +121,10 @@ func TestBuscador_ContenidoSimple(t *testing.T) {
 	b := NewBuscador()
 
 	res, _ := b.Ejecutar(context.Background(), map[string]interface{}{
-		"operacion":      "contenido",
-		"ruta":           tmp,
-		"texto":          "Helper",
-		"ignorar_case":   false,
+		"operacion":    "contenido",
+		"ruta":         tmp,
+		"texto":        "Helper",
+		"ignorar_case": false,
 	})
 	if !res.Exito {
 		t.Fatalf("falló: %+v", res)
@@ -153,10 +153,10 @@ func TestBuscador_ContenidoCaseInsensitive(t *testing.T) {
 
 	// Case insensitive: "helper" debería encontrar "Helper"
 	res, _ := b.Ejecutar(context.Background(), map[string]interface{}{
-		"operacion":      "contenido",
-		"ruta":           tmp,
-		"texto":          "helper",
-		"ignorar_case":   true,
+		"operacion":    "contenido",
+		"ruta":         tmp,
+		"texto":        "helper",
+		"ignorar_case": true,
 	})
 	datos := res.Datos.(ResultadoBuscador)
 	if datos.TotalMatches == 0 {
@@ -170,10 +170,10 @@ func TestBuscador_ContenidoCaseSensitive(t *testing.T) {
 
 	// Case sensitive: "helper" (minúsculas) NO debería encontrar "Helper"
 	res, _ := b.Ejecutar(context.Background(), map[string]interface{}{
-		"operacion":      "contenido",
-		"ruta":           tmp,
-		"texto":          "helper",
-		"ignorar_case":   false,
+		"operacion":    "contenido",
+		"ruta":         tmp,
+		"texto":        "helper",
+		"ignorar_case": false,
 	})
 	datos := res.Datos.(ResultadoBuscador)
 	// "helper" en minúsculas solo aparece en subdir/test.txt ("helper here")
@@ -213,9 +213,9 @@ func TestBuscador_Combinado(t *testing.T) {
 
 	// Buscar "Helper" solo en archivos .go
 	res, _ := b.Ejecutar(context.Background(), map[string]interface{}{
-		"operacion":  "combinado",
-		"ruta":       tmp,
-		"texto":      "Helper",
+		"operacion":   "combinado",
+		"ruta":        tmp,
+		"texto":       "Helper",
 		"extensiones": []string{"go"},
 	})
 	if !res.Exito {
@@ -242,11 +242,11 @@ func TestBuscador_Contexto(t *testing.T) {
 	b := NewBuscador()
 
 	res, _ := b.Ejecutar(context.Background(), map[string]interface{}{
-		"operacion":        "contenido",
-		"ruta":             tmp,
-		"texto":            "func main()",
-		"contexto_lineas":  2,
-		"extensiones":      []string{"go"},
+		"operacion":       "contenido",
+		"ruta":            tmp,
+		"texto":           "func main()",
+		"contexto_lineas": 2,
+		"extensiones":     []string{"go"},
 	})
 	if !res.Exito {
 		t.Fatalf("falló: %+v", res)
@@ -267,9 +267,9 @@ func TestBuscador_ModificadoDesde(t *testing.T) {
 
 	// modificado_desde en el futuro: ningún archivo pasa
 	res, _ := b.Ejecutar(context.Background(), map[string]interface{}{
-		"operacion":         "archivos",
-		"ruta":              tmp,
-		"modificado_desde":  time.Now().Add(1 * time.Hour).Format(time.RFC3339),
+		"operacion":        "archivos",
+		"ruta":             tmp,
+		"modificado_desde": time.Now().Add(1 * time.Hour).Format(time.RFC3339),
 	})
 	datos := res.Datos.(ResultadoBuscador)
 	if datos.TotalArchivos != 0 {
@@ -278,9 +278,9 @@ func TestBuscador_ModificadoDesde(t *testing.T) {
 
 	// modificado_desde en el pasado: todos pasan
 	res, _ = b.Ejecutar(context.Background(), map[string]interface{}{
-		"operacion":         "archivos",
-		"ruta":              tmp,
-		"modificado_desde":  "1h",
+		"operacion":        "archivos",
+		"ruta":             tmp,
+		"modificado_desde": "1h",
 	})
 	datos = res.Datos.(ResultadoBuscador)
 	if datos.TotalArchivos == 0 {

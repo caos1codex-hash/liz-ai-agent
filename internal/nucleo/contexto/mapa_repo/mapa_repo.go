@@ -7,17 +7,17 @@
 //
 // Formato de ejemplo (500 tokens de presupuesto):
 //
-//   src/auth/jwt.go:
-//     func GenerateToken(userID string, claims map[string]interface{}) (string, error)
-//     func ValidateToken(token string) (*Claims, error)
-//     type Claims struct { UserID string; Exp int64 }
+//	src/auth/jwt.go:
+//	  func GenerateToken(userID string, claims map[string]interface{}) (string, error)
+//	  func ValidateToken(token string) (*Claims, error)
+//	  type Claims struct { UserID string; Exp int64 }
 //
-//   src/auth/oauth.go:
-//     func HandleOAuthCallback(w http.ResponseWriter, r *http.Request)
+//	src/auth/oauth.go:
+//	  func HandleOAuthCallback(w http.ResponseWriter, r *http.Request)
 //
-//   src/db/postgres.go:
-//     func Connect(dsn string) (*sql.DB, error)
-//     type Conn struct { db *sql.DB }
+//	src/db/postgres.go:
+//	  func Connect(dsn string) (*sql.DB, error)
+//	  type Conn struct { db *sql.DB }
 package mapa_repo
 
 import (
@@ -36,31 +36,31 @@ import (
 
 // EntradaMapaRepo es la representación compacta de un archivo en el mapa.
 type EntradaMapaRepo struct {
-	Ruta         string  `json:"ruta"`
-	Lenguaje     string  `json:"lenguaje"`
-	Lineas       int     `json:"lineas"`
-	Importancia  float64 `json:"importancia"` // PageRank score [0.0, 1.0]
-	Simbolos     []SimboloCompacto `json:"simbolos"`
-	TokensAprox  int     `json:"tokens_aprox"`
+	Ruta        string            `json:"ruta"`
+	Lenguaje    string            `json:"lenguaje"`
+	Lineas      int               `json:"lineas"`
+	Importancia float64           `json:"importancia"` // PageRank score [0.0, 1.0]
+	Simbolos    []SimboloCompacto `json:"simbolos"`
+	TokensAprox int               `json:"tokens_aprox"`
 }
 
 // SimboloCompacto es un símbolo representado solo por su firma.
 type SimboloCompacto struct {
 	Nombre    string `json:"nombre"`
-	Tipo      string `json:"tipo"`       // "funcion", "metodo", "estructura", etc.
-	Firma     string `json:"firma"`      // firma completa en una línea
+	Tipo      string `json:"tipo"`  // "funcion", "metodo", "estructura", etc.
+	Firma     string `json:"firma"` // firma completa en una línea
 	Exportado bool   `json:"exportado"`
 }
 
 // MapaRepo es el repository map completo.
 type MapaRepo struct {
-	Proyecto       string             `json:"proyecto"`
-	TotalArchivos  int                `json:"total_archivos"`
-	ArchivosIncluidos int              `json:"archivos_incluidos"` // cuántos se incluyeron
-	TokensAprox    int                `json:"tokens_aprox"`
-	PresupuestoTokens int              `json:"presupuesto_tokens"`
-	Entradas       []EntradaMapaRepo  `json:"entradas"`
-	Truncado       bool               `json:"truncado"` // true si no caben todos
+	Proyecto          string            `json:"proyecto"`
+	TotalArchivos     int               `json:"total_archivos"`
+	ArchivosIncluidos int               `json:"archivos_incluidos"` // cuántos se incluyeron
+	TokensAprox       int               `json:"tokens_aprox"`
+	PresupuestoTokens int               `json:"presupuesto_tokens"`
+	Entradas          []EntradaMapaRepo `json:"entradas"`
+	Truncado          bool              `json:"truncado"` // true si no caben todos
 }
 
 // Generador genera repository maps a partir de AST + grafo.
@@ -82,8 +82,8 @@ func NuevoGenerador() *Generador {
 // ArchivoParaMapa es la información mínima que Generador necesita sobre
 // cada archivo para construir el mapa.
 type ArchivoParaMapa struct {
-	Ruta         string  // ruta relativa
-	RutaAbsoluta string  // ruta absoluta al archivo
+	Ruta         string // ruta relativa
+	RutaAbsoluta string // ruta absoluta al archivo
 	Lenguaje     string
 	Lineas       int
 	Importancia  float64 // PageRank score
@@ -92,11 +92,11 @@ type ArchivoParaMapa struct {
 // Generar construye el repository map respetando el presupuesto de tokens.
 //
 // Algoritmo:
-//   1. Ordenar archivos por importancia (PageRank score descendente)
-//   2. Para cada archivo, generar su vista compacta (firmas solo)
-//   3. Estimar tokens (4 chars ≈ 1 token)
-//   4. Agregar archivos hasta alcanzar el presupuesto
-//   5. Si no caben todos, marcar truncado=true
+//  1. Ordenar archivos por importancia (PageRank score descendente)
+//  2. Para cada archivo, generar su vista compacta (firmas solo)
+//  3. Estimar tokens (4 chars ≈ 1 token)
+//  4. Agregar archivos hasta alcanzar el presupuesto
+//  5. Si no caben todos, marcar truncado=true
 func (g *Generador) Generar(proyecto string, archivos []ArchivoParaMapa, presupuestoTokens int) *MapaRepo {
 	mapa := &MapaRepo{
 		Proyecto:          proyecto,
@@ -162,12 +162,13 @@ func (g *Generador) Generar(proyecto string, archivos []ArchivoParaMapa, presupu
 
 // FormatoTexto retorna el mapa en formato texto plano (para incluir en prompts).
 // Formato:
-//   <ruta_del_archivo>
-//     firma1
-//     firma2
 //
-//   <otro_archivo>
-//     firma3
+//	<ruta_del_archivo>
+//	  firma1
+//	  firma2
+//
+//	<otro_archivo>
+//	  firma3
 func (m *MapaRepo) FormatoTexto() string {
 	var b strings.Builder
 

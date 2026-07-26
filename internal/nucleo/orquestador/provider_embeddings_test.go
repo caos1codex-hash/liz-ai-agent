@@ -87,15 +87,15 @@ func TestProviderEmbeddingsNVIDIA_Dimensiones(t *testing.T) {
 	cliente := NuevoClienteNVIDIA("http://test", "key")
 
 	casos := []struct {
-		modelo    string
-		esperado  int
+		modelo   string
+		esperado int
 	}{
 		{"nvidia/nv-embed-v1", 1024},
 		{"nvidia/nv-embedqa-e5-v5", 1024},
 		{"nvidia/nv-embedqa-mistral7b-v2", 4096},
 		{"snowflake/arctic-embed-l-v2.0", 1024},
 		{"modelo-desconocido", 1024}, // default
-		{"", 1024}, // default (se convierte a nv-embed-v1)
+		{"", 1024},                   // default (se convierte a nv-embed-v1)
 	}
 	for _, c := range casos {
 		provider := NuevoProviderEmbeddings(cliente, c.modelo)

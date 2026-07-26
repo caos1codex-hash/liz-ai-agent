@@ -10,21 +10,21 @@
 //
 // Jerarquía de memoria:
 //
-//   1. SESIONES — una sesión por conversación (uuid, usuario, timestamps)
-//      Persistencia: ~/.liz/memoria/sesiones/<uuid>.json
+//  1. SESIONES — una sesión por conversación (uuid, usuario, timestamps)
+//     Persistencia: ~/.liz/memoria/sesiones/<uuid>.json
 //
-//   2. MENSAJES — cada turno de chat (rol, contenido, timestamp, metadata)
-//      Persistencia: dentro del archivo de sesión
+//  2. MENSAJES — cada turno de chat (rol, contenido, timestamp, metadata)
+//     Persistencia: dentro del archivo de sesión
 //
-//   3. HECHOS — tripletas (sujeto, predicado, objeto) extraídas del diálogo
-//      con confianza y timestamp. Resolución de conflictos: si un hecho nuevo
-//      contradice uno viejo (mismo sujeto+predicado), el viejo se marca como
-//      "obsoleto" y el nuevo lo reemplaza.
-//      Persistencia: ~/.liz/memoria/hechos/<usuario>.json
+//  3. HECHOS — tripletas (sujeto, predicado, objeto) extraídas del diálogo
+//     con confianza y timestamp. Resolución de conflictos: si un hecho nuevo
+//     contradice uno viejo (mismo sujeto+predicado), el viejo se marca como
+//     "obsoleto" y el nuevo lo reemplaza.
+//     Persistencia: ~/.liz/memoria/hechos/<usuario>.json
 //
-//   4. RESÚMENES — resúmenes consolidados de sesiones cerradas
-//      (cuando una sesión termina, se genera un resumen que alimenta futuras sesiones)
-//      Persistencia: ~/.liz/memoria/resumenes/<usuario>.json
+//  4. RESÚMENES — resúmenes consolidados de sesiones cerradas
+//     (cuando una sesión termina, se genera un resumen que alimenta futuras sesiones)
+//     Persistencia: ~/.liz/memoria/resumenes/<usuario>.json
 //
 // Acceso:
 //

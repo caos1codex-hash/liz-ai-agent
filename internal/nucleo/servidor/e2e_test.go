@@ -17,9 +17,9 @@ import (
 // pasando por todos los componentes del pipeline: Receptor → Clasificador → Planificador → Ejecutor → Respondedor
 func TestE2E_ConversacionCompleta_SinLLM(t *testing.T) {
 	cfg := config.NuevoGestorConConfig(&config.Config{
-		Puerto: 3000,
-		Host:   "localhost",
-		Nombre: "liz-test",
+		Puerto:  3000,
+		Host:    "localhost",
+		Nombre:  "liz-test",
 		Version: "0.9.0",
 	})
 
@@ -193,9 +193,9 @@ func TestE2E_ConversacionCompleta_SinLLM(t *testing.T) {
 // y se envían múltiples mensajes a la misma sesión.
 func TestE2E_FlujoCompletoConSesiones(t *testing.T) {
 	cfg := config.NuevoGestorConConfig(&config.Config{
-		Puerto: 3001,
-		Host:   "localhost",
-		Nombre: "liz-e2e",
+		Puerto:  3001,
+		Host:    "localhost",
+		Nombre:  "liz-e2e",
 		Version: "0.9.0",
 	})
 
@@ -266,9 +266,9 @@ func TestE2E_FlujoCompletoConSesiones(t *testing.T) {
 // después de una conversación completa.
 func TestE2E_HealthEndpoints(t *testing.T) {
 	cfg := config.NuevoGestorConConfig(&config.Config{
-		Puerto: 3002,
-		Host:   "localhost",
-		Nombre: "liz-health",
+		Puerto:  3002,
+		Host:    "localhost",
+		Nombre:  "liz-health",
 		Version: "0.9.0",
 	})
 

@@ -14,7 +14,7 @@ func TestGestor_CargarTodas_ErrorDirectorio(t *testing.T) {
 	g := &Gestor{
 		directorio: "/tmp/no_existe_liz_auto_creacion_test_" + randomID(),
 	}
-	
+
 	resultados := g.CargarTodas()
 	if resultados == nil {
 		t.Fatal("CargarTodas no debería retornar nil")
@@ -31,7 +31,7 @@ func TestGestor_Eliminar_Inexistente(t *testing.T) {
 	g := &Gestor{
 		directorio: t.TempDir(),
 	}
-	
+
 	// No debería fallar eliminando algo que no existe
 	err := g.Eliminar("no_existe")
 	// Puede retornar error o nil dependiendo de la implementación
@@ -43,7 +43,7 @@ func TestGestor_Recargar_SinFuente(t *testing.T) {
 	g := &Gestor{
 		directorio: tmpDir,
 	}
-	
+
 	// Recargar algo que no existe
 	err := g.Recargar(context.Background(), "no_existe", false)
 	// No debería panic
@@ -55,7 +55,7 @@ func TestGestor_Probar_SinCatalogo(t *testing.T) {
 	g := &Gestor{
 		directorio: tmpDir,
 	}
-	
+
 	// Probar sin inyectar al catálogo
 	err := g.Probar(context.Background(), "no_existe", nil)
 	_ = err
@@ -65,7 +65,7 @@ func TestGestor_ObtenerInfo_Inexistente(t *testing.T) {
 	g := &Gestor{
 		directorio: t.TempDir(),
 	}
-	
+
 	info, err := g.ObtenerInfo("no_existe")
 	if err != nil {
 		t.Logf("error esperado para herramienta inexistente: %v", err)
@@ -81,7 +81,7 @@ func TestGestor_ObtenerInfo_Inexistente(t *testing.T) {
 
 func TestCompilar_FuenteInvalida(t *testing.T) {
 	tmpDir := t.TempDir()
-	
+
 	_, _, err := Compilar(tmpDir, "fuente_invalido.go", "esta_no_es_go_valido{{{")
 	if err == nil {
 		t.Fatal("esperaba error compilando fuente inválida")
@@ -90,10 +90,10 @@ func TestCompilar_FuenteInvalida(t *testing.T) {
 
 func TestCompilar_FuenteVacia(t *testing.T) {
 	tmpDir := t.TempDir()
-	
+
 	// Escribir archivo Go vacío
 	escribirArchivo(t, tmpDir+"/vacio.go", "package main\n")
-	
+
 	_, _, err := Compilar(tmpDir, "vacio.go", "")
 	if err != nil {
 		t.Fatalf("archivo Go vacío debería compilar: %v", err)
@@ -113,11 +113,11 @@ func escribirArchivo(t *testing.T, ruta, contenido string) {
 
 func TestRegistro_MetadataInvalida(t *testing.T) {
 	tmpDir := t.TempDir()
-	
+
 	// Metadata JSON roto
 	rutaMetadata := tmpDir + "/metadata.json"
 	os.WriteFile(rutaMetadata, []byte("no es json"), 0644)
-	
+
 	_, err := LeerMetadata(rutaMetadata)
 	if err == nil {
 		t.Log("metadata inválida puede ser aceptada (depende de implementación)")
@@ -127,7 +127,7 @@ func TestRegistro_MetadataInvalida(t *testing.T) {
 func TestRegistro_ListarVacio(t *testing.T) {
 	tmpDir := t.TempDir()
 	os.MkdirAll(tmpDir+"/herramientas", 0755)
-	
+
 	lista, err := ListarHerramientas(tmpDir)
 	if err != nil {
 		t.Fatalf("no esperaba error: %v", err)
@@ -155,7 +155,7 @@ func TestSolicitudCreacion_Vacia(t *testing.T) {
 func TestSolicitudCreacion_ConForzarSpec(t *testing.T) {
 	sol := SolicitudCreacion{
 		ForzarSpec: &SpecHerramienta{
-			Nombre:     "test",
+			Nombre:      "test",
 			Descripcion: "test tool",
 			Categoria:   "test",
 			Parametros:  []ParametroSpec{},
@@ -177,14 +177,14 @@ func TestResultadoCreacion_Serializar(t *testing.T) {
 
 func TestSpecHerramienta_Campos(t *testing.T) {
 	spec := SpecHerramienta{
-		Nombre:     "compresor",
+		Nombre:      "compresor",
 		Descripcion: "Comprime archivos",
 		Categoria:   "archivo",
 		Parametros: []ParametroSpec{
 			{Nombre: "input", Tipo: "string", Requerido: true, Descripcion: "Archivo de entrada"},
 		},
 	}
-	
+
 	if spec.Nombre != "compresor" {
 		t.Errorf("nombre incorrecto: %s", spec.Nombre)
 	}
@@ -195,12 +195,12 @@ func TestSpecHerramienta_Campos(t *testing.T) {
 
 func TestParametroSpec_Default(t *testing.T) {
 	p := ParametroSpec{
-		Nombre:     "modo",
-		Tipo:       "string",
-		Requerido:  false,
-		Default:    "rapido",
+		Nombre:    "modo",
+		Tipo:      "string",
+		Requerido: false,
+		Default:   "rapido",
 	}
-	
+
 	if p.Default != "rapido" {
 		t.Errorf("default incorrecto: %v", p.Default)
 	}
@@ -208,14 +208,14 @@ func TestParametroSpec_Default(t *testing.T) {
 
 func TestMetadataHerramienta_Estructura(t *testing.T) {
 	m := MetadataHerramienta{
-		Nombre:     "test",
-		Creado:     "2024-01-01T00:00:00Z",
-		Modificado: "2024-01-01T00:00:00Z",
+		Nombre:      "test",
+		Creado:      "2024-01-01T00:00:00Z",
+		Modificado:  "2024-01-01T00:00:00Z",
 		Ejecuciones: 5,
 		Exito:       4,
 		Fallos:      1,
 	}
-	
+
 	if m.Nombre != "test" {
 		t.Error("nombre incorrecto")
 	}
@@ -230,7 +230,7 @@ func TestMetadataHerramienta_Estructura(t *testing.T) {
 
 func TestExtraerFuenteGo_Basico(t *testing.T) {
 	codigo := "package main\n\nfunc main() {\n\tfmt.Println(\"hola\")\n}\n"
-	
+
 	fuente := ExtraerFuenteGo(codigo)
 	if fuente != codigo {
 		t.Error("debería retornar el código completo")
@@ -239,7 +239,7 @@ func TestExtraerFuenteGo_Basico(t *testing.T) {
 
 func TestExtraerFuenteGo_ConMarkdown(t *testing.T) {
 	codigo := "```go\npackage main\n\nfunc main() {}\n```\nTexto después"
-	
+
 	fuente := ExtraerFuenteGo(codigo)
 	if !strings.Contains(fuente, "package main") {
 		t.Error("debería extraer el código Go del bloque markdown")

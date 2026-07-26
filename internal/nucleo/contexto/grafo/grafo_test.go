@@ -243,7 +243,7 @@ func TestResolverImportGo(t *testing.T) {
 		{modulo + "/internal/auth", "internal/auth/"},
 		{modulo + "/internal/nucleo/contexto", "internal/nucleo/contexto/"},
 		{"github.com/otros/proyecto", ""}, // externo
-		{"fmt", ""}, // stdlib
+		{"fmt", ""},                       // stdlib
 	}
 
 	for _, tt := range tests {

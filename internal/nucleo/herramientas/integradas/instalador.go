@@ -15,23 +15,23 @@ import (
 
 // GestoresSoportados lista los gestores de paquetes que Instalador soporta.
 var GestoresSoportados = []string{
-	"apt",       // Debian/Ubuntu
-	"apt-get",   // Debian/Ubuntu (legacy)
-	"snap",      // Universal Linux
-	"dnf",       // Fedora/RHEL
-	"yum",       // RHEL/CentOS (legacy)
-	"pacman",    // Arch Linux
-	"zypper",    // openSUSE
-	"apk",       // Alpine
-	"brew",      // macOS/Homebrew
-	"pip",       // Python
-	"pip3",      // Python 3
-	"npm",       // Node.js
-	"yarn",      // Node.js alternativo
-	"cargo",     // Rust
-	"gem",       // Ruby
-	"composer",  // PHP
-	"go",        // Go install
+	"apt",      // Debian/Ubuntu
+	"apt-get",  // Debian/Ubuntu (legacy)
+	"snap",     // Universal Linux
+	"dnf",      // Fedora/RHEL
+	"yum",      // RHEL/CentOS (legacy)
+	"pacman",   // Arch Linux
+	"zypper",   // openSUSE
+	"apk",      // Alpine
+	"brew",     // macOS/Homebrew
+	"pip",      // Python
+	"pip3",     // Python 3
+	"npm",      // Node.js
+	"yarn",     // Node.js alternativo
+	"cargo",    // Rust
+	"gem",      // Ruby
+	"composer", // PHP
+	"go",       // Go install
 }
 
 // Instalador instala y desinstala paquetes usando gestores del sistema.
@@ -109,24 +109,24 @@ func (i *Instalador) Parametros() []herramientas.Parametro {
 
 // ResultadoInstalador es el Datos de Instalador.
 type ResultadoInstalador struct {
-	Operacion   string             `json:"operacion"`
-	Gestor      string             `json:"gestor"`
-	Gestores    []GestorDisponible `json:"gestores,omitempty"`
-	Paquetes    []string           `json:"paquetes,omitempty"`
-	Exitoso     bool               `json:"exitoso"`
-	Salida      string             `json:"salida,omitempty"`
-	Error       string             `json:"error,omitempty"`
-	CodigoSalida int               `json:"codigo_salida,omitempty"`
-	DryRun      bool               `json:"dry_run,omitempty"`
-	ComandoEjecutado string        `json:"comando_ejecutado,omitempty"`
+	Operacion        string             `json:"operacion"`
+	Gestor           string             `json:"gestor"`
+	Gestores         []GestorDisponible `json:"gestores,omitempty"`
+	Paquetes         []string           `json:"paquetes,omitempty"`
+	Exitoso          bool               `json:"exitoso"`
+	Salida           string             `json:"salida,omitempty"`
+	Error            string             `json:"error,omitempty"`
+	CodigoSalida     int                `json:"codigo_salida,omitempty"`
+	DryRun           bool               `json:"dry_run,omitempty"`
+	ComandoEjecutado string             `json:"comando_ejecutado,omitempty"`
 }
 
 // GestorDisponible describe un gestor detectado en el sistema.
 type GestorDisponible struct {
-	Nombre    string `json:"nombre"`
-	Ruta      string `json:"ruta"`
-	Disponible bool  `json:"disponible"`
-	Version   string `json:"version,omitempty"`
+	Nombre     string `json:"nombre"`
+	Ruta       string `json:"ruta"`
+	Disponible bool   `json:"disponible"`
+	Version    string `json:"version,omitempty"`
 }
 
 func (i *Instalador) Validar() error { return nil }
@@ -472,9 +472,9 @@ func ejecutarComandoInstalador(ctx context.Context, comando string, args []strin
 	// Usar Terminal internamente para respetar permisos peligrosos
 	tl := NewTerminal()
 	tlParams := map[string]interface{}{
-		"comando":            comando,
-		"args":               args,
-		"timeout_segundos":   300,
+		"comando":          comando,
+		"args":             args,
+		"timeout_segundos": 300,
 	}
 	res, _ := tl.Ejecutar(ctx, tlParams)
 	if !res.Exito {

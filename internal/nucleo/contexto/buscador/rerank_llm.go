@@ -16,7 +16,7 @@ import (
 type RerankerLLM struct {
 	mu      sync.Mutex
 	llmFn   func(prompt string) (string, error) // función que llama al LLM
-	maxTopK int                                  // máximo resultados a rerankear (default 10)
+	maxTopK int                                 // máximo resultados a rerankear (default 10)
 	logFunc func(string, ...interface{})
 }
 

@@ -23,8 +23,8 @@ import (
 //	g.AgregarHecho("user-1", "usuario", "prefiere", "Go", 0.9, sesion.ID)
 //	contexto := g.ContextoParaLLM("user-1", 10, 20) // últimos 10 mensajes + 20 hechos
 type Gestor struct {
-	mu      sync.RWMutex
-	dirBase string
+	mu       sync.RWMutex
+	dirBase  string
 	sesiones *GestorSesiones
 	hechos   *GestorHechos
 	logFunc  func(string, ...interface{})
@@ -139,9 +139,9 @@ func (g *Gestor) ContextoParaLLM(usuarioID string, ultimosNMensajes int, limiteH
 
 // EstadisticasMemoria retorna métricas combinadas de sesiones y hechos.
 type EstadisticasMemoria struct {
-	SesionesActivas int                    `json:"sesiones_activas"`
-	HechosActivos   int                    `json:"hechos_activos"`
-	HechosObsoletos int                    `json:"hechos_obsoletos"`
+	SesionesActivas int `json:"sesiones_activas"`
+	HechosActivos   int `json:"hechos_activos"`
+	HechosObsoletos int `json:"hechos_obsoletos"`
 }
 
 // Estadisticas retorna métricas generales del sistema de memoria.

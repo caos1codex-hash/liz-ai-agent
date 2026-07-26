@@ -330,8 +330,8 @@ func TestGestor_EstablecerMultiple(t *testing.T) {
 	g, _ := Inicializar(ruta)
 
 	err := g.EstablecerMultiple(map[string]string{
-		"puerto":         "5555",
-		"logging.nivel":  "debug",
+		"puerto":        "5555",
+		"logging.nivel": "debug",
 	})
 	if err != nil {
 		t.Fatalf("EstablecerMultiple falló: %v", err)

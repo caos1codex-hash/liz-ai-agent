@@ -9,18 +9,19 @@
 // ┌─────────────────────────────────────────────────────────────────┐
 // │                      Pipeline (coordinador)                      │
 // └────────┬──────────┬──────────┬──────────┬──────────┬─────────────┘
-//          │          │          │          │          │
-//          ▼          ▼          ▼          ▼          ▼
-//     Receptor  Clasificador Planificador Ejecutor  Respondedor
-//     (input)   (intención)   (pasos)    (tools)   (LLM+stream)
-//          │          │          │          │          │
-//          ▼          ▼          ▼          ▼          ▼
-//       Memoria   Orquestador  Orquestador Catalogo  Orquestador
-//                (clasificar)  (planificar)           (completar)
-//                                           │
-//                                           ▼
-//                                   Auto-Creación
-//                                   (si falta tool)
+//
+//	     │          │          │          │          │
+//	     ▼          ▼          ▼          ▼          ▼
+//	Receptor  Clasificador Planificador Ejecutor  Respondedor
+//	(input)   (intención)   (pasos)    (tools)   (LLM+stream)
+//	     │          │          │          │          │
+//	     ▼          ▼          ▼          ▼          ▼
+//	  Memoria   Orquestador  Orquestador Catalogo  Orquestador
+//	           (clasificar)  (planificar)           (completar)
+//	                                      │
+//	                                      ▼
+//	                              Auto-Creación
+//	                              (si falta tool)
 //
 // # Flujo Completo
 //
@@ -45,7 +46,7 @@
 //
 // # Endpoints API
 //
-//   POST /api/v1/chat           — Enviar mensaje (JSON o SSE)
-//   GET  /api/v1/chat           — Estado del pipeline + estadísticas
-//   GET  /api/v1/chat/sesiones  — Listar sesiones de chat activas
+//	POST /api/v1/chat           — Enviar mensaje (JSON o SSE)
+//	GET  /api/v1/chat           — Estado del pipeline + estadísticas
+//	GET  /api/v1/chat/sesiones  — Listar sesiones de chat activas
 package pipeline

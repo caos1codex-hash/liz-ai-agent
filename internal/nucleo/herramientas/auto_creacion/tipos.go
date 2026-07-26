@@ -174,9 +174,9 @@ type ResultadoCreacion struct {
 
 // SolicitudSubprocess es el JSON que Liz envía por stdin al binario.
 type SolicitudSubprocess struct {
-	Operacion   string                 `json:"operacion"` // "info" | "validar" | "ejecutar"
-	Parametros  map[string]interface{} `json:"parametros,omitempty"`
-	TimeoutMS   int                    `json:"timeout_ms,omitempty"`
+	Operacion  string                 `json:"operacion"` // "info" | "validar" | "ejecutar"
+	Parametros map[string]interface{} `json:"parametros,omitempty"`
+	TimeoutMS  int                    `json:"timeout_ms,omitempty"`
 }
 
 // RespuestaSubprocess es el JSON que el binario devuelve por stdout.
@@ -196,7 +196,7 @@ type DatosInfo struct {
 
 // DatosValidar es el payload de la operacion="validar".
 type DatosValidar struct {
-	OK     bool   `json:"ok"`
+	OK      bool   `json:"ok"`
 	Detalle string `json:"detalle,omitempty"`
 }
 
@@ -206,8 +206,8 @@ type DatosValidar struct {
 
 // ErrAutoCreacion es la base de los errores del paquete.
 type ErrAutoCreacion struct {
-	Etapa  string // "deteccion", "generacion", "compilacion", "carga", "registro"
-	Causa  string
+	Etapa   string // "deteccion", "generacion", "compilacion", "carga", "registro"
+	Causa   string
 	Interno error
 }
 
