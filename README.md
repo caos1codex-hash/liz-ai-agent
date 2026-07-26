@@ -3,10 +3,38 @@
 > Agente de IA autonomo que controla completamente tu Linux mediante lenguaje natural.
 > No es un chatbot. No es un asistente de codigo. Es un sistema operativo de IA.
 
-![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8)
-![Phase](https://img.shields.io/badge/fase-8%20de%2010-orange)
-![GUI](https://img.shields.io/badge/GUI-Fyne%20nativa-7c3aed)
-![Tests](https://img.shields.io/badge/tests-616%20pasando-brightgreen)
+![Version](https://img.shields.io/github/v/release/caos1codex-hash/liz-ai-agent?include_prereleases&style=flat-square&color=7c3aed)
+![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square)
+![Phase](https://img.shields.io/badge/fase-10%20de%2010-brightgreen?style=flat-square)
+![GUI](https://img.shields.io/badge/GUI-Fyne%20nativa-7c3aed?style=flat-square)
+![CI](https://img.shields.io/github/actions/workflow/status/caos1codex-hash/liz-ai-agent/ci.yml?branch=main&style=flat-square&label=CI)
+![Release](https://img.shields.io/github/actions/workflow/status/caos1codex-hash/liz-ai-agent/release.yml?style=flat-square&label=release)
+![License](https://img.shields.io/github/license/caos1codex-hash/liz-ai-agent?style=flat-square)
+![Docker](https://img.shields.io/badge/Docker-multi--arch-2496ED?style=flat-square)
+
+## 🚀 Instalación rápida (Fase 10 — v0.1.0)
+
+```bash
+# Una línea — detecta distro, descarga binario, instala deps, crea config
+curl -fsSL https://github.com/caos1codex-hash/liz-ai-agent/releases/latest/download/install.sh | bash
+
+# O clonar y compilar desde source
+git clone https://github.com/caos1codex-hash/liz-ai-agent.git
+cd liz-ai-agent && make install
+```
+
+### Docker
+
+```bash
+docker run -d --name liz \
+  -p 3000:3000 \
+  -v liz-data:/home/liz/.liz \
+  -e NVIDIA_API_KEY=$NVIDIA_API_KEY \
+  ghcr.io/caos1codex-hash/liz-ai-agent:latest
+```
+
+> **Filosofía**: "Si no está en GitHub, no existe."
+> Todo se distribuye vía [releases de GitHub](https://github.com/caos1codex-hash/liz-ai-agent/releases) y [ghcr.io](https://github.com/caos1codex-hash/liz-ai-agent/pkgs/container/liz-ai-agent).
 
 ## Que hace Liz?
 
@@ -37,6 +65,11 @@ Permisos completos al iniciar. Nunca vuelve a preguntar.
 GUI 100% nativa con Fyne v2 + OpenGL. Sin navegador, sin WebView, sin Electron.
 Un solo binario `liz` que arranca el servidor HTTP y abre la ventana.
 
+### 6. Distribución multi-plataforma (Fase 10)
+Binarios precompilados para **Linux amd64/arm64** y **macOS Intel/Apple Silicon**,
+paquetes nativos **DEB / RPM / AUR**, imagen **Docker multi-arch**, e instalador
+automático multi-distro. Todo publicado automáticamente vía GitHub Actions.
+
 ## Arquitectura
 
 ```
@@ -60,7 +93,7 @@ Un solo binario `liz` que arranca el servidor HTTP y abre la ventana.
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**[Arquitectura completa](docs/ARQUITECTURA.md)** | **[Decisiones de diseno](docs/DECISIONES.md)**
+**[Arquitectura completa](docs/ARQUITECTURA.md)** | **[Decisiones de diseno](docs/DECISIONES.md)** | **[Instalación detallada](docs/INSTALACION.md)**
 
 ## Roadmap
 
@@ -74,8 +107,8 @@ Un solo binario `liz` que arranca el servidor HTTP y abre la ventana.
 | 6 | Auto-Creacion | [#14](https://github.com/caos1codex-hash/liz-ai-agent/issues/14) | ✅ |
 | 7 | Pipeline de Chat | [#15](https://github.com/caos1codex-hash/liz-ai-agent/issues/15) | ✅ |
 | 8 | App de Escritorio Nativa | [#16](https://github.com/caos1codex-hash/liz-ai-agent/issues/16) | ✅ |
-| 9 | Testing y Docs | [#17](https://github.com/caos1codex-hash/liz-ai-agent/issues/17) | ⏳ |
-| 10 | Release v0.1.0 | [#18](https://github.com/caos1codex-hash/liz-ai-agent/issues/18) | ⏳ |
+| 9 | Testing y Docs | [#17](https://github.com/caos1codex-hash/liz-ai-agent/issues/17) | ✅ |
+| 10 | Release v0.1.0 | [#18](https://github.com/caos1codex-hash/liz-ai-agent/issues/18) | ✅ |
 
 ## App de Escritorio Nativa (Fase 8)
 
@@ -556,8 +589,101 @@ curl http://localhost:3000/api/v1/chat/metricas
 | GUI de escritorio | Fyne v2.8 (OpenGL/GLFW nativo) |
 | IA | API NVIDIA (8+ modelos) |
 | Streaming | Server-Sent Events |
+| CI/CD | GitHub Actions (matrix multi-plataforma) |
+| Container | Docker multi-arch (linux/amd64 + linux/arm64) |
+| Distribución | GitHub Releases + ghcr.io + DEB/RPM/AUR |
+
+## Fase 10 — Release v0.1.0
+
+### Plataformas soportadas
+
+| Plataforma | Binario | Tamaño aprox. | Modo |
+|------------|---------|---------------|------|
+| Linux x86_64 | `liz-linux-amd64` | ~30MB | Desktop con GUI Fyne |
+| Linux x86_64 | `liz-server-linux-amd64` | ~7MB | Headless estático |
+| Linux ARM64 | `liz-server-linux-arm64` | ~7MB | Headless estático |
+| macOS Intel | `liz-server-darwin-amd64` | ~8MB | Headless |
+| macOS Apple Silicon | `liz-server-darwin-arm64` | ~8MB | Headless |
+
+### Paquetes nativos
+
+| Distro | Paquete | Instalación |
+|--------|---------|-------------|
+| Debian/Ubuntu/Mint | `liz_<ver>_amd64.deb` | `sudo dpkg -i liz_*.deb` |
+| Fedora/RHEL/Rocky | `liz-<ver>-1.x86_64.rpm` | `sudo dnf install liz-*.rpm` |
+| Arch/Manjaro | PKGBUILD (AUR) | `makepkg -si` en `packaging/` |
+| Cualquier Linux | `liz-v<ver>.tar.gz` | `tar -xzf liz-v*.tar.gz && cd liz-v* && ./scripts/install.sh` |
+| macOS / Windows | Tarball + instalar manual | Ver [docs/INSTALACION.md](docs/INSTALACION.md) |
+
+### Docker
+
+Imagen oficial multi-arch publicada en [ghcr.io/caos1codex-hash/liz-ai-agent](https://github.com/caos1codex-hash/liz-ai-agent/pkgs/container/liz-ai-agent):
+
+```bash
+# Tags disponibles: :latest, :v0.1.0, :sha-<commit>
+docker pull ghcr.io/caos1codex-hash/liz-ai-agent:latest
+
+# Ejecutar con volumen persistente
+docker run -d --name liz \
+  -p 3000:3000 \
+  -v liz-data:/home/liz/.liz \
+  -e NVIDIA_API_KEY=$NVIDIA_API_KEY \
+  --restart unless-stopped \
+  ghcr.io/caos1codex-hash/liz-ai-agent:latest
+
+# Con docker-compose
+curl -fsSL https://raw.githubusercontent.com/caos1codex-hash/liz-ai-agent/main/docker/docker-compose.yml -o docker-compose.yml
+NVIDIA_API_KEY=tu_key docker compose up -d
+```
+
+### Verificación de integridad
+
+Cada release incluye `checksums-v<ver>.txt` con SHA-256 de todos los assets:
+
+```bash
+# Descargar checksums
+curl -fsSL https://github.com/caos1codex-hash/liz-ai-agent/releases/latest/download/checksums-v0.10.0.txt -o checksums.txt
+
+# Verificar
+sha256sum -c checksums.txt
+```
+
+### CI/CD automatizado
+
+- **`ci.yml`** — Se ejecuta en cada push/PR: `go vet`, `go build`, `gofmt check`, smoke test del servidor headless.
+- **`release.yml`** — Se ejecuta al pushear un tag `v*.*.*`:
+  1. Cross-compila 5 binarios (matrix strategy)
+  2. Crea tarballs + checksums SHA-256
+  3. Empaqueta DEB + RPM
+  4. Construye imagen Docker multi-arch y la publica en ghcr.io
+  5. Crea GitHub Release con todos los assets + notas autogeneradas
+
+Ver [docs/RELEASE.md](docs/RELEASE.md) para el proceso completo de release.
+
+### Cómo publicar un nuevo release
+
+```bash
+# 1. Bump de versión en cmd/liz/main.go
+# 2. Commit + push
+git add -A && git commit -m "release: vX.Y.Z" && git push origin main
+
+# 3. Crear tag y pushear (triggera el workflow de release)
+git tag -a vX.Y.Z -m "Liz vX.Y.Z — Fase 10"
+git push origin vX.Y.Z
+
+# 4. GitHub Actions hace todo automáticamente:
+#    - Compila binarios
+#    - Crea paquetes DEB/RPM/tarball
+#    - Publica imagen Docker multi-arch
+#    - Crea GitHub Release con assets + notas
+#    https://github.com/caos1codex-hash/liz-ai-agent/actions
+```
 
 ---
 
 > **IMPORTANTE: Si cambias de modelo de IA, lee `docs/ARQUITECTURA.md` primero.**
 > Ahi esta TODO: principios, decisiones, flujos, estructura. El repo se autodocumenta.
+
+> **Filosofía del proyecto**: *"Si no está en GitHub, no existe."*
+> Todo cambio se commitea y pushea lo antes posible. Todo release se taggea
+> y se publica con assets verificables. Todo se documenta en `docs/`.
