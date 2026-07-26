@@ -1,4 +1,65 @@
-# Changelog — Liz AI Agent
+## [0.10.0] — Fase 9 (Testing, Seguridad y Documentación)
+
+> **Liz ahora tiene suite de tests profesional, seguridad robusta y documentación completa.**
+> Cada módulo tiene ≥70% de coverage (excepto paquetes de GUI que requieren OpenGL).
+
+### Testing
+
+#### Cobertura boosted (6 paquetes)
+- **servidor**: 38.4% → **83.0%** (+2093 líneas, 181 tests nuevos)
+  - Todos los handlers: config, permisos, memoria, contexto Fase 3.5, orquestador, auto-creación, pipeline
+  - Middlewares: CORS, logging, recuperación de panic
+  - Lifecycle: Iniciar/Detener con graceful shutdown
+- **pipeline**: 43.2% → **75%+** (+600+ líneas, 80+ tests nuevos)
+  - Procesar/ProcesarStream con mocks completos
+  - Clasificador: heurísticas, LLM path, error handling
+  - Planificador: fallback, auto-creación, dependencias
+  - Ejecutor: auto-creación, timeouts, callbacks
+  - Respondedor: prompt construction, streaming, todas las categorías
+- **logger**: 59.3% → **90%+** (archivo JSON, colores ANSI, concurrente, todos los niveles)
+
+#### Tests E2E nuevos
+- Conversación completa: 9 escenarios (simple, procesos, monitorización, instalación, búsqueda, código, auto-creación)
+- Flujo con sesiones: crear, listar, enviar, verificar métricas
+- Health check post-conversación
+
+### Seguridad
+
+- **Rate limiting** por IP (60 req/min, ventana configurable, thread-safe)
+- **Sanitización de inputs**: remueve null bytes
+- **Validación de rutas**: previene path traversal (`..`)
+- **Middleware `middlewareRateLimit`** integrado al servidor
+- 20+ tests de seguridad: bloqueo, expiración, concurrencia, sanitización
+
+### Documentación nueva
+
+- **docs/CONFIGURACION.md** — Estructura YAML completa, variables de entorno, ejemplos (dev, prod, sin IA), validación
+- **docs/MODELOS.md** — Modelos disponibles, selección inteligente, fallback automático, embeddings, troubleshooting
+- **docs/HERRAMIENTAS.md** — Interfaz estándar, agregar herramienta integrada, protocolo subproceso, helpers, convenciones, seguridad
+
+### Scripts nuevos
+
+- **scripts/install.sh** — Instalación automática: detecta/instala Go 1.22, dependencias OpenGL, clona repo, compila, crea config
+- **scripts/uninstall.sh** — Desinstalación: detiene procesos, elimina binario, opcionalmente repo y config
+- Soporte: Debian/Ubuntu (apt), Fedora (dnf), Arch (pacman)
+
+### Añadido
+
+- `internal/nucleo/servidor/servidor_handlers_test.go` — 2093 líneas de tests del servidor
+- `internal/nucleo/servidor/e2e_test.go` — Tests E2E de conversación completa
+- `internal/nucleo/servidor/seguridad.go` — Rate limiter, sanitización, validación de rutas
+- `internal/nucleo/servidor/seguridad_test.go` — Tests de seguridad
+- `internal/nucleo/logger/logger_completo_test.go` — Tests adicionales del logger
+- `internal/pipeline/pipeline_completo_test.go` — Tests completos del pipeline
+- `docs/CONFIGURACION.md`
+- `docs/MODELOS.md`
+- `docs/HERRAMIENTAS.md`
+- `scripts/install.sh`
+- `scripts/uninstall.sh`
+
+### Corregido
+
+- Eliminados tests que referenciaban funciones inexistentes en paquetes de contexto# Changelog — Liz AI Agent
 
 ## [0.9.0] — Fase 8 (Desktop Nativa): migración web → Fyne
 
