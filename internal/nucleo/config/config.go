@@ -748,21 +748,13 @@ func aplicarDefaults(cfg *Configuracion) {
 		cfg.Contexto.TamanoContexto = 128000
 	}
 
-	// Defaults de modelos: si no hay ninguno, usar un modelo NVIDIA por defecto
-	// para que la configuración mínima sea válida.
+	// Defaults de modelos: si no hay ninguno, usar el catálogo NVIDIA por defecto
+	// (IDs válidos para integrate.api.nvidia.com/v1). El campo `Nombre` se envía
+	// tal cual como `model` en el body del request a la API, así que DEBE ser
+	// un ID NVIDIA válido (ej: "meta/llama-3.1-70b-instruct"), no un nombre
+	// para humanos. Ver issue #22.
 	if len(cfg.Modelos) == 0 {
-		cfg.Modelos = []ConfiguracionModelo{
-			{
-				Nombre:      "Llama 3.1 70B",
-				Proveedor:   "nvidia",
-				URL:         "https://integrate.api.nvidia.com/v1",
-				Temperatura: 0.7,
-				TopP:        0.9,
-				MaxTokens:   4096,
-				Rol:         "principal",
-				Habilitado:  true,
-			},
-		}
+		cfg.Modelos = defaultsModelosNVIDIA()
 	}
 
 	// Defaults de herramientas: si no hay ninguna, registrar las básicas
@@ -877,38 +869,7 @@ func ConfiguracionPorDefecto() Configuracion {
 		Nombre:         "Liz",
 		Version:        "0.1.0",
 		DirectorioBase: "~/.liz",
-		Modelos: []ConfiguracionModelo{
-			{
-				Nombre:      "claude-3-5-sonnet",
-				Proveedor:   "anthropic",
-				URL:         "https://api.anthropic.com/v1/messages",
-				Temperatura: 0.7,
-				TopP:        0.9,
-				MaxTokens:   8192,
-				Rol:         "principal",
-				Habilitado:  true,
-			},
-			{
-				Nombre:      "gpt-4o",
-				Proveedor:   "openai",
-				URL:         "https://api.openai.com/v1/chat/completions",
-				Temperatura: 0.7,
-				TopP:        0.9,
-				MaxTokens:   8192,
-				Rol:         "reserva",
-				Habilitado:  false,
-			},
-			{
-				Nombre:      "llama-3.1-405b",
-				Proveedor:   "nvidia",
-				URL:         "https://integrate.api.nvidia.com/v1/chat/completions",
-				Temperatura: 0.7,
-				TopP:        0.9,
-				MaxTokens:   8192,
-				Rol:         "reserva",
-				Habilitado:  false,
-			},
-		},
+		Modelos: defaultsModelosNVIDIA(),
 		Herramientas: []ConfiguracionHerramienta{
 			{
 				Nombre:     "terminal",
@@ -947,6 +908,104 @@ func ConfiguracionPorDefecto() Configuracion {
 			TamanoContexto:     128000,
 			ResumenAuto:        true,
 			CatalogoHabilitado: true,
+		},
+	}
+}
+
+
+// defaultsModelosNVIDIA retorna el catálogo de modelos NVIDIA por defecto.
+//
+// El campo `Nombre` se envía tal cual como `model` en el body del request a
+// la API de NVIDIA (integrate.api.nvidia.com/v1/chat/completions), así que
+// DEBE ser un ID NVIDIA válido (ej: "meta/llama-3.1-70b-instruct"), no un
+// nombre para humanos. Ver issue #22.
+//
+// La URL NO debe incluir `/chat/completions` — el cliente NVIDIA lo concatena
+// automáticamente. Ver issue #22.
+//
+// Solo se incluyen modelos NVIDIA porque el orquestador (Fase 4) solo soporta
+// el endpoint de NVIDIA (formato OpenAI-compatible). Ver issue #28.
+func defaultsModelosNVIDIA() []ConfiguracionModelo {
+	return []ConfiguracionModelo{
+		{
+			Nombre:      "meta/llama-3.1-70b-instruct",
+			Proveedor:   "nvidia",
+			URL:         "https://integrate.api.nvidia.com/v1",
+			Temperatura: 0.7,
+			TopP:        0.9,
+			MaxTokens:   4096,
+			Rol:         "principal",
+			Habilitado:  true,
+		},
+		{
+			Nombre:      "meta/llama-3.1-405b-instruct",
+			Proveedor:   "nvidia",
+			URL:         "https://integrate.api.nvidia.com/v1",
+			Temperatura: 0.7,
+			TopP:        0.9,
+			MaxTokens:   8192,
+			Rol:         "reserva",
+			Habilitado:  true,
+		},
+		{
+			Nombre:      "mistralai/mixtral-8x22b-instruct-v0.1",
+			Proveedor:   "nvidia",
+			URL:         "https://integrate.api.nvidia.com/v1",
+			Temperatura: 0.7,
+			TopP:        0.9,
+			MaxTokens:   8192,
+			Rol:         "reserva",
+			Habilitado:  true,
+		},
+		{
+			Nombre:      "nvidia/llama-3.1-nemotron-70b-instruct",
+			Proveedor:   "nvidia",
+			URL:         "https://integrate.api.nvidia.com/v1",
+			Temperatura: 0.7,
+			TopP:        0.9,
+			MaxTokens:   8192,
+			Rol:         "reserva",
+			Habilitado:  true,
+		},
+		{
+			Nombre:      "meta/codellama-70b-instruct",
+			Proveedor:   "nvidia",
+			URL:         "https://integrate.api.nvidia.com/v1",
+			Temperatura: 0.7,
+			TopP:        0.9,
+			MaxTokens:   8192,
+			Rol:         "especializado",
+			Habilitado:  true,
+		},
+		{
+			Nombre:      "google/gemma-2-27b-it",
+			Proveedor:   "nvidia",
+			URL:         "https://integrate.api.nvidia.com/v1",
+			Temperatura: 0.7,
+			TopP:        0.9,
+			MaxTokens:   8192,
+			Rol:         "especializado",
+			Habilitado:  true,
+		},
+		{
+			Nombre:      "microsoft/phi-3-medium-128k-instruct",
+			Proveedor:   "nvidia",
+			URL:         "https://integrate.api.nvidia.com/v1",
+			Temperatura: 0.7,
+			TopP:        0.9,
+			MaxTokens:   8192,
+			Rol:         "especializado",
+			Habilitado:  true,
+		},
+		{
+			Nombre:      "nvidia/nemotron-4-340b-instruct",
+			Proveedor:   "nvidia",
+			URL:         "https://integrate.api.nvidia.com/v1",
+			Temperatura: 0.7,
+			TopP:        0.9,
+			MaxTokens:   8192,
+			Rol:         "especializado",
+			Habilitado:  true,
 		},
 	}
 }
