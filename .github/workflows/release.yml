@@ -89,13 +89,9 @@ jobs:
             tags: headless
             binary: liz-server
             artifact: liz-server-darwin-arm64
-          - target: headless-windows-amd64
-            goos: windows
-            goarch: amd64
-            cgo: 0
-            tags: headless
-            binary: liz-server
-            artifact: liz-server-windows-amd64.exe
+          # Windows omitido en v0.1.0: herramientas/integradas/procesos.go usa
+          # syscall.SIGSTOP/SIGCONT que no existen en Windows.
+          # Se añadirá en v0.2.0 con build tags para platform-specific syscall.
 
     steps:
       - name: Checkout
@@ -133,7 +129,6 @@ jobs:
         run: |
           mkdir -p dist
           OUTPUT="dist/${{ matrix.artifact }}"
-          [[ "${{ matrix.goos }}" == "windows" ]] && OUTPUT="${OUTPUT}"
           go build \
             -trimpath \
             ${{ matrix.tags != '' && format('-tags {0}', matrix.tags) || '' }} \
@@ -348,7 +343,8 @@ jobs:
           | Linux ARM64 | \`liz-server-linux-arm64\` | Headless estático | ~7MB |
           | macOS Intel | \`liz-server-darwin-amd64\` | Headless | ~8MB |
           | macOS Apple Silicon | \`liz-server-darwin-arm64\` | Headless | ~8MB |
-          | Windows x86_64 | \`liz-server-windows-amd64.exe\` | Headless | ~8MB |
+
+          > Windows se añadirá en v0.2.0 (Fase 5 usa syscall.SIGSTOP/SIGCONT no disponibles en Windows).
 
           ### Instalación rápida
 
@@ -407,7 +403,6 @@ jobs:
             release-assets/liz-server-linux-arm64
             release-assets/liz-server-darwin-amd64
             release-assets/liz-server-darwin-arm64
-            release-assets/liz-server-windows-amd64.exe
             release-assets/*.tar.gz
             release-assets/*.deb
             release-assets/*.rpm

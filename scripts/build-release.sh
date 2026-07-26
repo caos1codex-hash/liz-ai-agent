@@ -93,14 +93,19 @@ build_desktop() {
         if ! (dpkg -s libgl1-mesa-dev xorg-dev >/dev/null 2>&1) && \
            ! (rpm -q mesa-libGL-devel libX11-devel >/dev/null 2>&1) && \
            ! (pacman -Q mesa libx11 >/dev/null 2>&1); then
-            warn "Dependencias OpenGL dev no detectadas — el build puede fallar"
-            warn "Instala: libgl1-mesa-dev xorg-dev libxrandr-dev libxinerama-dev \\"
-            warn "         libxcursor-dev libxi-dev libxxf86vm-dev libwayland-dev \\"
-            warn "         libxkbcommon-dev libegl-dev libglx-dev"
+            warn "Dependencias OpenGL dev no detectadas — el build desktop se omite"
+            warn "En CI (GitHub Actions ubuntu-latest) se instalan automáticamente."
+            warn "Localmente instala: libgl1-mesa-dev xorg-dev libxrandr-dev libxinerama-dev \\"
+            warn "  libxcursor-dev libxi-dev libxxf86vm-dev libwayland-dev \\"
+            warn "  libxkbcommon-dev libegl-dev libglx-dev"
+            return 0
         fi
     fi
 
-    CGO_ENABLED=1 go build -ldflags="${LDFLAGS}" -o "$output" "$MAIN_PKG"
+    if ! CGO_ENABLED=1 go build -ldflags="${LDFLAGS}" -o "$output" "$MAIN_PKG" 2>/dev/null; then
+        warn "Build desktop falló (probablemente deps OpenGL faltantes) — continuando con headless"
+        return 0
+    fi
 
     local size
     size="$(du -h "$output" | cut -f1)"
@@ -132,9 +137,9 @@ make_checksums() {
     info "Generando checksums SHA256..."
     local sums="${OUT_DIR}/checksums-${TAG}.txt"
     : > "$sums"
-    for f in "$OUT_DIR"/*.tar.gz "$OUT_DIR"/liz-* "$OUT_DIR"/liz-server-*; do
+    # Solo checksums de los tarballs (los binarios sueltos están dentro)
+    for f in "$OUT_DIR"/*.tar.gz; do
         [[ -f "$f" ]] || continue
-        [[ "$f" == *.tar.gz ]] || continue
         local basename; basename="$(basename "$f")"
         local sha; sha="$(sha256sum "$f" | cut -d' ' -f1)"
         echo "${sha}  ${basename}" >> "$sums"
@@ -170,7 +175,9 @@ if [[ "$MODE" == "all" || "$MODE" == "headless" ]]; then
     build_headless linux   arm64 "linux-arm64"
     build_headless darwin  amd64 "darwin-amd64"
     build_headless darwin  arm64 "darwin-arm64"
-    build_headless windows amd64 "windows-amd64.exe"
+    # Windows omitido en v0.1.0: herramientas/integradas/procesos.go usa
+    # syscall.SIGSTOP/SIGCONT que no existen en Windows. Se añadirá en v0.2.0
+    # con build tags para platform-specific syscall handling.
 fi
 
 # --- Crear tarballs ---

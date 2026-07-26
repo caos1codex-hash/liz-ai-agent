@@ -26,3 +26,4 @@ go-local/
 
 # Test cache
 testcache/
+dist/
