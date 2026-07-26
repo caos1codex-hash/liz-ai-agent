@@ -1,0 +1,174 @@
+# ============================================================================
+# Liz AI Agent — CI workflow (push/PR)
+# ============================================================================
+# Fase 10 — Release v0.1.0
+#
+# Se ejecuta en cada push a main y en cada PR. Verifica:
+#   - go vet
+#   - go build (headless tag)
+#   - go test (paquetes estables que no requieren OpenGL)
+#   - gofmt check
+# ============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main, fase-10]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # --- Job 1: build + vet + test headless ---
+  build-test:
+    name: Build & Test (headless)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Download deps
+        run: go mod download
+
+      - name: Go vet (headless)
+        run: CGO_ENABLED=0 go vet -tags headless ./cmd/liz/...
+
+      - name: Go vet (núcleo)
+        run: CGO_ENABLED=0 go vet ./internal/nucleo/...
+
+      - name: Build (headless, static)
+        run: |
+          CGO_ENABLED=0 go build \
+            -tags headless \
+            -trimpath \
+            -ldflags="-s -w -X main.version=$(git describe --tags --always 2>/dev/null || echo dev)" \
+            -o /tmp/liz-server \
+            ./cmd/liz
+          /tmp/liz-server --version
+          ls -lh /tmp/liz-server
+
+      - name: Test (paquetes estables, headless tag)
+        run: |
+          CGO_ENABLED=0 go test -tags headless -short -count=1 -v \
+            ./internal/nucleo/logger/... \
+            ./internal/nucleo/config/... \
+            ./internal/nucleo/permisos/... \
+            ./internal/nucleo/memoria/... \
+            ./internal/nucleo/orquestador/... \
+            ./internal/nucleo/herramientas/... 2>&1 | tee test-output.txt
+
+      - name: Upload test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output
+          path: test-output.txt
+          retention-days: 7
+
+  # --- Job 2: gofmt check ---
+  fmt:
+    name: Go Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Check gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [[ -n "$unformatted" ]]; then
+            echo "::error::Archivos no formateados con gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+          echo "✓ Todos los archivos .go están formateados correctamente"
+
+  # --- Job 3: build desktop (requiere deps OpenGL) ---
+  build-desktop:
+    name: Build Desktop (GUI Fyne)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Install OpenGL dev dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            libgl1-mesa-dev xorg-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libxxf86vm-dev libwayland-dev \
+            libxkbcommon-dev libegl-dev libglx-dev
+
+      - name: Download deps
+        run: go mod download
+
+      - name: Build desktop (con GUI Fyne)
+        run: |
+          CGO_ENABLED=1 go build \
+            -trimpath \
+            -ldflags="-s -w -X main.version=$(git describe --tags --always 2>/dev/null || echo dev)" \
+            -o /tmp/liz \
+            ./cmd/liz
+          /tmp/liz --version
+          ls -lh /tmp/liz
+
+  # --- Job 4: smoke test del binario headless ---
+  smoke-test:
+    name: Smoke Test (headless server)
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Build headless
+        run: |
+          CGO_ENABLED=0 go build -tags headless -o /tmp/liz-server ./cmd/liz
+
+      - name: Smoke test — arrancar servidor y verificar endpoint /api/v1/salud
+        run: |
+          # Arrancar servidor en background
+          mkdir -p ~/.liz
+          /tmp/liz-server --headless &
+          LIZ_PID=$!
+          sleep 3
+
+          # Verificar que responde
+          curl -fsSL http://localhost:3000/api/v1/salud || curl -fsSL http://localhost:8080/api/v1/salud || {
+            echo "Server endpoints:"
+            curl -fsSL http://localhost:3000/ 2>&1 | head -20
+            kill $LIZ_PID
+            exit 1
+          }
+
+          echo "✓ Servidor responde correctamente"
+
+          # Cleanup
+          kill $LIZ_PID 2>/dev/null || true

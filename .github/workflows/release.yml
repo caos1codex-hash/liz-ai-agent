@@ -1,0 +1,415 @@
+# ============================================================================
+# Liz AI Agent — Release workflow (tag-triggered)
+# ============================================================================
+# Fase 10 — Release v0.1.0 — Issue #18
+#
+# Se ejecuta cuando se hace push de un tag v*.*.* (ej: v0.1.0).
+# Compila binarios para todas las plataformas, crea paquetes DEB/RPM/tarball,
+# construye imagen Docker multi-arch y publica todo en un GitHub Release.
+#
+# Targets producidos:
+#   - liz-linux-amd64                                   (desktop con GUI)
+#   - liz-server-linux-amd64                            (headless estático)
+#   - liz-server-linux-arm64                            (headless arm64)
+#   - liz-server-darwin-amd64                           (macOS Intel)
+#   - liz-server-darwin-arm64                           (macOS Apple Silicon)
+#   - liz-server-windows-amd64.exe                      (Windows)
+#   - liz_*.deb                                          (Debian/Ubuntu)
+#   - liz-*.rpm                                          (Fedora/RHEL)
+#   - liz-v*.tar.gz                                      (tarball genérico)
+#   - checksums-v*.txt                                   (SHA256)
+#   - Imagen Docker ghcr.io/caos1codex-hash/liz-ai-agent:v* (multi-arch)
+# ============================================================================
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag a publicar (ej: v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write   # para crear GitHub Release y subir assets
+  packages: write   # para publicar imagen en ghcr.io
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ============================================================================
+  # Job 1: Cross-compilation de binarios
+  # ============================================================================
+  build-binaries:
+    name: Build Binaries
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Desktop (CGO + OpenGL, solo linux/amd64 nativo)
+          - target: desktop-linux-amd64
+            goos: linux
+            goarch: amd64
+            cgo: 1
+            tags: ""
+            binary: liz
+            artifact: liz-linux-amd64
+          # Headless (CGO_ENABLED=0, estático, portable)
+          - target: headless-linux-amd64
+            goos: linux
+            goarch: amd64
+            cgo: 0
+            tags: headless
+            binary: liz-server
+            artifact: liz-server-linux-amd64
+          - target: headless-linux-arm64
+            goos: linux
+            goarch: arm64
+            cgo: 0
+            tags: headless
+            binary: liz-server
+            artifact: liz-server-linux-arm64
+          - target: headless-darwin-amd64
+            goos: darwin
+            goarch: amd64
+            cgo: 0
+            tags: headless
+            binary: liz-server
+            artifact: liz-server-darwin-amd64
+          - target: headless-darwin-arm64
+            goos: darwin
+            goarch: arm64
+            cgo: 0
+            tags: headless
+            binary: liz-server
+            artifact: liz-server-darwin-arm64
+          - target: headless-windows-amd64
+            goos: windows
+            goarch: amd64
+            cgo: 0
+            tags: headless
+            binary: liz-server
+            artifact: liz-server-windows-amd64.exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Install OpenGL dev deps (solo desktop-linux-amd64)
+        if: matrix.cgo == 1
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            libgl1-mesa-dev xorg-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libxxf86vm-dev libwayland-dev \
+            libxkbcommon-dev libegl-dev libglx-dev
+
+      - name: Extract version
+        id: version
+        run: |
+          TAG="${GITHUB_REF##*/}"
+          [[ -z "$TAG" || "$TAG" == "refs/tags/" ]] && TAG="${{ inputs.tag }}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+          echo "Tag: $TAG"
+
+      - name: Build binary
+        env:
+          CGO_ENABLED: ${{ matrix.cgo }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p dist
+          OUTPUT="dist/${{ matrix.artifact }}"
+          [[ "${{ matrix.goos }}" == "windows" ]] && OUTPUT="${OUTPUT}"
+          go build \
+            -trimpath \
+            ${{ matrix.tags != '' && format('-tags {0}', matrix.tags) || '' }} \
+            -ldflags="-s -w -X main.version=${{ steps.version.outputs.version }}" \
+            -o "$OUTPUT" \
+            ./cmd/liz
+          ls -lh "$OUTPUT"
+          file "$OUTPUT"
+
+      - name: Verify binary
+        run: |
+          # Verificar que el binario arranca (solo si es linux-amd64, el runner nativo)
+          if [[ "${{ matrix.goos }}" == "linux" && "${{ matrix.goarch }}" == "amd64" ]]; then
+            chmod +x "dist/${{ matrix.artifact }}"
+            "dist/${{ matrix.artifact }}" --version
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+          retention-days: 7
+
+  # ============================================================================
+  # Job 2: Crear tarballs, DEB y RPM (depende de los binarios)
+  # ============================================================================
+  package:
+    name: Create Packages
+    runs-on: ubuntu-latest
+    needs: build-binaries
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Extract version
+        id: version
+        run: |
+          TAG="${GITHUB_REF##*/}"
+          [[ -z "$TAG" || "$TAG" == "refs/tags/" ]] && TAG="${{ inputs.tag }}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          merge-multiple: true
+
+      - name: Make binaries executable
+        run: chmod +x dist/liz-* dist/liz-server-* 2>/dev/null || true
+
+      - name: Show downloaded files
+        run: ls -lh dist/
+
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq dpkg-dev fakeroot rpm
+
+      - name: Create tarballs + checksums
+        run: |
+          cd dist
+          for bin in liz-* liz-server-*; do
+            [[ -f "$bin" ]] || continue
+            staging="$(mktemp -d)/liz-${{ steps.version.outputs.tag }}"
+            mkdir -p "$staging"
+            cp "$bin" "$staging/"
+            cp ../configs/liz.yaml.example "$staging/" 2>/dev/null || true
+            cp ../README.md "$staging/" 2>/dev/null || true
+            cp ../LICENSE "$staging/" 2>/dev/null || true
+            tar -C "$(dirname "$staging")" -czf "${bin}-${{ steps.version.outputs.tag }}.tar.gz" "$(basename "$staging")"
+            rm -rf "$(dirname "$staging")"
+          done
+          # Checksums
+          : > checksums-${{ steps.version.outputs.tag }}.txt
+          for f in *.tar.gz; do
+            sha256sum "$f" >> checksums-${{ steps.version.outputs.tag }}.txt
+          done
+          ls -lh
+
+      - name: Create DEB package
+        run: |
+          chmod +x scripts/package-deb.sh
+          ./scripts/package-deb.sh "${{ steps.version.outputs.tag }}"
+
+      - name: Create RPM package
+        run: |
+          chmod +x scripts/package-rpm.sh
+          ./scripts/package-rpm.sh "${{ steps.version.outputs.tag }}"
+
+      - name: Upload all packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: |
+            dist/*.tar.gz
+            dist/*.deb
+            dist/*.rpm
+            dist/checksums-*.txt
+          retention-days: 7
+
+  # ============================================================================
+  # Job 3: Docker multi-arch build & push
+  # ============================================================================
+  docker:
+    name: Docker Multi-Arch
+    runs-on: ubuntu-latest
+    needs: build-binaries
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          TAG="${GITHUB_REF##*/}"
+          [[ -z "$TAG" || "$TAG" == "refs/tags/" ]] && TAG="${{ inputs.tag }}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+          echo "image_tags=$TAG,latest" >> $GITHUB_OUTPUT
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest
+            type=sha,prefix=sha-
+
+      - name: Build and push (multi-arch)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ============================================================================
+  # Job 4: Crear GitHub Release con todos los assets
+  # ============================================================================
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-binaries, package, docker]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          TAG="${GITHUB_REF##*/}"
+          [[ -z "$TAG" || "$TAG" == "refs/tags/" ]] && TAG="${{ inputs.tag }}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets/
+          merge-multiple: true
+
+      - name: List release assets
+        run: |
+          find release-assets/ -type f | sort
+          echo "---"
+          ls -lhR release-assets/
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          cat > release-notes.md <<EOF
+          # Liz AI Agent ${{ steps.version.outputs.tag }}
+
+          ## 🚀 Novedades de Fase 10
+
+          Primer release oficial de Liz — el agente de IA autónomo para Linux.
+
+          ### Binarios disponibles
+
+          | Plataforma | Binario | Modo | Tamaño aprox. |
+          |------------|---------|------|---------------|
+          | Linux x86_64 | \`liz-linux-amd64\` | Desktop con GUI Fyne | ~30MB |
+          | Linux x86_64 | \`liz-server-linux-amd64\` | Headless estático | ~7MB |
+          | Linux ARM64 | \`liz-server-linux-arm64\` | Headless estático | ~7MB |
+          | macOS Intel | \`liz-server-darwin-amd64\` | Headless | ~8MB |
+          | macOS Apple Silicon | \`liz-server-darwin-arm64\` | Headless | ~8MB |
+          | Windows x86_64 | \`liz-server-windows-amd64.exe\` | Headless | ~8MB |
+
+          ### Instalación rápida
+
+          \`\`\`bash
+          curl -fsSL https://github.com/caos1codex-hash/liz-ai-agent/releases/latest/download/install.sh | bash
+          \`\`\`
+
+          ### Docker
+
+          \`\`\`bash
+          docker run -d --name liz \\
+            -p 3000:3000 \\
+            -v liz-data:/home/liz/.liz \\
+            -e NVIDIA_API_KEY=\$NVIDIA_API_KEY \\
+            ghcr.io/caos1codex-hash/liz-ai-agent:latest
+          \`\`\`
+
+          ### Paquetes nativos
+
+          - **DEB** (Debian/Ubuntu): \`liz_${{ steps.version.outputs.version }}_amd64.deb\`
+          - **RPM** (Fedora/RHEL): \`liz-${{ steps.version.outputs.version }}-1.x86_64.rpm\`
+          - **AUR** (Arch): PKGBUILD en \`packaging/PKGBUILD\`
+          - **Tarball genérico**: \`liz-${{ steps.version.outputs.tag }}.tar.gz\`
+
+          ### Verificación
+
+          Verifica la integridad de los binarios con los checksums en \`checksums-${{ steps.version.outputs.tag }}.txt\`:
+
+          \`\`\`bash
+          sha256sum -c checksums-${{ steps.version.outputs.tag }}.txt
+          \`\`\`
+
+          ### Documentación
+
+          - [README](https://github.com/caos1codex-hash/liz-ai-agent#readme)
+          - [Arquitectura](https://github.com/caos1codex-hash/liz-ai-agent/blob/main/docs/ARQUITECTURA.md)
+          - [Instalación detallada](https://github.com/caos1codex-hash/liz-ai-agent/blob/main/docs/INSTALACION.md)
+          - [Changelog completo](https://github.com/caos1codex-hash/liz-ai-agent/blob/main/CHANGELOG.md)
+
+          ---
+
+          **Filosofía**: "si no está en GitHub, no existe."
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "Liz ${{ steps.version.outputs.tag }} — Fase 10"
+          body_path: release-notes.md
+          draft: false
+          prerelease: false
+          files: |
+            release-assets/liz-linux-amd64
+            release-assets/liz-server-linux-amd64
+            release-assets/liz-server-linux-arm64
+            release-assets/liz-server-darwin-amd64
+            release-assets/liz-server-darwin-arm64
+            release-assets/liz-server-windows-amd64.exe
+            release-assets/*.tar.gz
+            release-assets/*.deb
+            release-assets/*.rpm
+            release-assets/checksums-*.txt
+          generate_release_notes: true
