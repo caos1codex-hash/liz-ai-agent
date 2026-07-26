@@ -41,8 +41,8 @@ import (
 )
 
 // versión del binario. Se actualiza en cada release.
-// Fase 10 (release v0.1.0): bump de versionado semántico.
-const version = "0.10.0"
+// Fase 10 (release v0.1.0): versionado semántico.
+const version = "0.1.0"
 
 // main es el punto de entrada del binario `liz`.
 //
