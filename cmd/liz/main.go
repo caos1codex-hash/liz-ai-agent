@@ -21,10 +21,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/config"
 	"github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto"
@@ -63,11 +65,35 @@ func main() {
 	configFlag := flag.String("config", "", "ruta al archivo de configuración YAML (default: ~/.liz/config.yaml)")
 	versionFlag := flag.Bool("version", false, "mostrar versión y salir")
 	headlessFlag := flag.Bool("headless", false, "modo servidor sin interfaz gráfica (sin GUI Fyne)")
+	healthFlag := flag.Bool("health", false, "hacer petición HTTP al servidor y verificar estado (para Docker healthcheck)")
+	healthURL := flag.String("health-url", "", "URL del endpoint de health (default: http://127.0.0.1:PUERTO_CONFIGURADO/api/v1/health)")
 	flag.Parse()
 
 	if *versionFlag {
 		fmt.Printf("liz version %s\n", version)
 		os.Exit(0)
+	}
+
+	// Modo healthcheck: hacer petición HTTP al servidor y salir.
+	// Pensado para Docker HEALTHCHECK (issue #26). El binario distroless no
+	// tiene curl/wget, pero puede hacer peticiones HTTP via Go stdlib.
+	if *healthFlag {
+		// Cargar config para saber qué puerto/host usar (solo si no se pasó --health-url).
+		url := *healthURL
+		if url == "" {
+			rutaCfg := *configFlag
+			if rutaCfg == "" {
+				home, _ := os.UserHomeDir()
+				rutaCfg = filepath.Join(home, ".liz", "config.yaml")
+			}
+			cfg, _ := config.Inicializar(rutaCfg)
+			if cfg != nil {
+				url = fmt.Sprintf("http://%s:%d/api/v1/health", "127.0.0.1", cfg.ObtenerPuerto())
+			} else {
+				url = "http://127.0.0.1:8080/api/v1/health"
+			}
+		}
+		os.Exit(runHealthCheck(url))
 	}
 
 	// --- Logger ---
@@ -515,4 +541,25 @@ func (a *pipelineContextoAdapter) EmpaquetarContexto(ctx context.Context, proyec
 		return "", err
 	}
 	return result.Contenido, nil
+}
+
+// runHealthCheck hace una petición HTTP GET al endpoint /api/v1/health
+// del servidor Liz y retorna 0 si responde 200, 1 en caso contrario.
+// Pensado para Docker HEALTHCHECK (issue #26).
+//
+// Uso: liz-server --health [--health-url http://host:puerto/api/v1/health]
+func runHealthCheck(url string) int {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "healthcheck: error conectando a %s: %v\n", url, err)
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "healthcheck: %s retornó HTTP %d\n", url, resp.StatusCode)
+		return 1
+	}
+	fmt.Printf("healthcheck: OK (%s)\n", url)
+	return 0
 }

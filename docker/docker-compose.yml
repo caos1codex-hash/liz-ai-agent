@@ -30,15 +30,18 @@ services:
     command: ["--headless"]
 
     ports:
-      - "3000:3000"   # API HTTP + SSE
+      - "3000:3000"   # API HTTP + SSE (mapea a LIZ_PUERTO=3000 del contenedor)
 
     environment:
-      # API key NVIDIA para el orquestador multi-modelo
-      # Si no se establece, los endpoints /api/v1/orquestador/* responden 503
+      # API key NVIDIA para el orquestador multi-modelo.
+      # Si no se establece, se usa la API key bundled por defecto (issue #29).
       - NVIDIA_API_KEY=${NVIDIA_API_KEY:-}
-      # Override de configuración vía env vars (opcional)
-      - LIZ_SERVIDOR_HOST=0.0.0.0
-      - LIZ_SERVIDOR_PUERTO=3000
+      # Override de configuración vía env vars reconocidas por Liz (issue #27).
+      # Antes usabamos LIZ_SERVIDOR_HOST/LIZ_SERVIDOR_PUERTO que no existen
+      # en el código y eran ignoradas, causando que el servidor escuchara en
+      # 8080 mientras docker-compose mapeaba 3000:3000 → connection refused.
+      - LIZ_HOST=0.0.0.0
+      - LIZ_PUERTO=3000
       # TZ para timestamps correctos en logs
       - TZ=${TZ:-America/Asuncion}
 
@@ -48,10 +51,10 @@ services:
       # Si tienes una config.yaml local, montala así (override):
       # - ./config.yaml:/home/liz/.liz/config.yaml:ro
 
-    # Healthcheck usa el endpoint HTTP (curl no disponible en distroless,
-    # pero el binario --version es suficiente como liveness probe)
+    # Healthcheck HTTP real (issue #26): el binario hace GET /api/v1/health
+    # via Go stdlib. Antes usabamos --version que no verificaba HTTP.
     healthcheck:
-      test: ["CMD", "/usr/local/bin/liz-server", "--version"]
+      test: ["CMD", "/usr/local/bin/liz-server", "--health"]
       interval: 30s
       timeout: 3s
       retries: 3

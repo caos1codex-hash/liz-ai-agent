@@ -88,12 +88,15 @@ COPY --from=builder /out/liz-server /usr/local/bin/liz-server
 # Volumen para configuración y datos persistentes
 VOLUME ["/home/liz/.liz"]
 
-# Puerto del servidor HTTP (default config: 3000)
-EXPOSE 3000
+# Puerto del servidor HTTP (default config: 8080; override via LIZ_PUERTO o config.yaml)
+EXPOSE 8080
 
-# Healthcheck: el binario expone GET /api/v1/salud
+# Healthcheck HTTP real (issue #26): el binario hace GET /api/v1/health via Go
+# stdlib. No requiere curl/wget (que no existen en distroless).
+# Antes usabamos --version que solo verificaba que el binario arranque, no
+# que el servidor HTTP respondiera.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD ["/usr/local/bin/liz-server", "--version"]
+    CMD ["/usr/local/bin/liz-server", "--health"]
 
 # Punto de entrada: arranca el servidor headless
 ENTRYPOINT ["/usr/local/bin/liz-server"]
