@@ -9,6 +9,7 @@
 //   - orquestador: multi-modelo NVIDIA con fallback (Fase 4)
 //   - herramientas: catálogo + 7 integradas (Fase 5)
 //   - servidor: HTTP API con todos los endpoints
+//   - desktop: GUI nativa Fyne (Fase 8)
 package main
 
 import (
@@ -19,7 +20,9 @@ import (
         "os/signal"
         "path/filepath"
         "syscall"
+        "time"
 
+        "github.com/caos1codex-hash/liz-ai-agent/internal/desktop"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/config"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/herramientas"
@@ -35,12 +38,12 @@ import (
 )
 
 // versión del binario. Se actualiza en cada release.
-const version = "0.7.0"
+const version = "0.9.0"
 
 // main es el punto de entrada del binario `liz`.
 //
 // Flujo:
-//   1. Parsear flags (--version, --config)
+//   1. Parsear flags (--version, --config, --headless)
 //   2. Inicializar logger
 //   3. Cargar configuración
 //   4. Inicializar permisos (conceder todos al iniciar)
@@ -48,11 +51,14 @@ const version = "0.7.0"
 //   6. Inicializar gestor de memoria conversacional (Fase 3.5+)
 //   7. Inicializar orquestador NVIDIA (Fase 4) — opcional, requiere API key
 //   8. Crear servidor con todas las dependencias inyectadas
-//   9. Iniciar servidor (bloquea hasta señal de terminación)
+//   9. Iniciar servidor en goroutine (no bloqueante)
+//  10. Si NO es --headless: arrancar GUI nativa (Fase 8 desktop)
+//      Si --headless: bloquear hasta señal de terminación
 func main() {
         // --- Flags ---
         configFlag := flag.String("config", "", "ruta al archivo de configuración YAML (default: ~/.liz/config.yaml)")
         versionFlag := flag.Bool("version", false, "mostrar versión y salir")
+        headlessFlag := flag.Bool("headless", false, "modo servidor sin interfaz gráfica (sin GUI Fyne)")
         flag.Parse()
 
         if *versionFlag {
@@ -272,10 +278,48 @@ func main() {
                 log.Info("Endpoints del orquestador disponibles en /api/v1/orquestador/*")
         }
 
-        if err := srv.Iniciar(); err != nil {
-                log.Error("Error al iniciar servidor: %v", err)
-                os.Exit(1)
+        // --- Modo de operación ---
+        //   --headless: solo servidor HTTP, sin GUI (uso en servidores/Docker)
+        //   default:    servidor HTTP en goroutine + GUI nativa Fyne (Fase 8)
+        if *headlessFlag {
+                log.Info("Modo --headless: servidor HTTP sin GUI")
+                if err := srv.Iniciar(); err != nil {
+                        log.Error("Error al iniciar servidor: %v", err)
+                        os.Exit(1)
+                }
+                return
         }
+
+        // Iniciar servidor HTTP en background (no bloquea)
+        errChan := make(chan error, 1)
+        go func() {
+                if err := srv.Iniciar(); err != nil {
+                        errChan <- err
+                }
+        }()
+
+        // Esperar a que el backend esté listo (timeout 10s)
+        baseURL := fmt.Sprintf("http://%s:%d", gestorCfg.ObtenerHost(), gestorCfg.ObtenerPuerto())
+        log.Info("Esperando backend listo en %s…", baseURL)
+        if err := desktop.EsperarBackend(baseURL, 10*time.Second); err != nil {
+                log.Warn("Backend no responde tras 10s: %v (la GUI intentará conectar igualmente)", err)
+        } else {
+                log.Info("Backend listo. Arrancando GUI nativa (Fase 8 desktop)…")
+        }
+
+        // Lanzar GUI nativa (bloquea hasta que se cierre la ventana)
+        desktopApp := desktop.NuevaApp(desktop.AppOpciones{
+                BaseURL: baseURL,
+        })
+        go func() {
+                if err := <-errChan; err != nil {
+                        log.Error("Servidor HTTP terminó con error: %v", err)
+                }
+        }()
+        desktopApp.Ejecutar()
+
+        // Al cerrar la GUI, el proceso termina.
+        log.Info("GUI cerrada. Cerrando Liz…")
 }
 
 // ============================================================================

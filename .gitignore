@@ -1,3 +1,5 @@
+/local-deps/
+# Local dev deps for Fyne compilation (not committed)
 # Binarios
 bin/
 /liz
