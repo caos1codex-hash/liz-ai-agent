@@ -9,7 +9,12 @@
 //   - orquestador: multi-modelo NVIDIA con fallback (Fase 4)
 //   - herramientas: catálogo + 7 integradas (Fase 5)
 //   - servidor: HTTP API con todos los endpoints
-//   - desktop: GUI nativa Fyne (Fase 8)
+//   - desktop: GUI nativa Fyne (Fase 8) — solo cuando NO se compila con -tags headless
+//
+// Build tags:
+//   - default (sin tag): binario completo con GUI Fyne (requiere CGO + OpenGL dev headers)
+//   - -tags headless:    binario servidor puro, sin dependencias Fyne/OpenGL,
+//                        cross-compilable a cualquier GOOS/GOARCH (Fase 10 — release v0.1.0)
 package main
 
 import (
@@ -20,9 +25,7 @@ import (
         "os/signal"
         "path/filepath"
         "syscall"
-        "time"
 
-        "github.com/caos1codex-hash/liz-ai-agent/internal/desktop"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/config"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/contexto"
         "github.com/caos1codex-hash/liz-ai-agent/internal/nucleo/herramientas"
@@ -38,7 +41,8 @@ import (
 )
 
 // versión del binario. Se actualiza en cada release.
-const version = "0.9.0"
+// Fase 10 (release v0.1.0): bump de versionado semántico.
+const version = "0.10.0"
 
 // main es el punto de entrada del binario `liz`.
 //
@@ -290,36 +294,9 @@ func main() {
                 return
         }
 
-        // Iniciar servidor HTTP en background (no bloquea)
-        errChan := make(chan error, 1)
-        go func() {
-                if err := srv.Iniciar(); err != nil {
-                        errChan <- err
-                }
-        }()
-
-        // Esperar a que el backend esté listo (timeout 10s)
-        baseURL := fmt.Sprintf("http://%s:%d", gestorCfg.ObtenerHost(), gestorCfg.ObtenerPuerto())
-        log.Info("Esperando backend listo en %s…", baseURL)
-        if err := desktop.EsperarBackend(baseURL, 10*time.Second); err != nil {
-                log.Warn("Backend no responde tras 10s: %v (la GUI intentará conectar igualmente)", err)
-        } else {
-                log.Info("Backend listo. Arrancando GUI nativa (Fase 8 desktop)…")
-        }
-
-        // Lanzar GUI nativa (bloquea hasta que se cierre la ventana)
-        desktopApp := desktop.NuevaApp(desktop.AppOpciones{
-                BaseURL: baseURL,
-        })
-        go func() {
-                if err := <-errChan; err != nil {
-                        log.Error("Servidor HTTP terminó con error: %v", err)
-                }
-        }()
-        desktopApp.Ejecutar()
-
-        // Al cerrar la GUI, el proceso termina.
-        log.Info("GUI cerrada. Cerrando Liz…")
+        // Lanzar GUI nativa (o bloquear en servidor puro si se compiló con -tags headless).
+        // La implementación está en desktop_desktop.go o desktop_headless.go según build tag.
+        lanzarModoVisual(srv, gestorCfg, log)
 }
 
 // ============================================================================
