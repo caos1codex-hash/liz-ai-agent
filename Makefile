@@ -86,16 +86,21 @@ test:
 test-short:
         CGO_ENABLED=0 $(GO) test -tags headless -short ./...
 
-## test-stable: Solo tests de paquetes estables (no requieren OpenGL ni mocks rotos)
+## test-stable: Tests de paquetes headless estables (excluye desktop y pipeline)
+## pipeline se excluye por bugs logicos preexistentes (issue separado).
 test-stable:
         CGO_ENABLED=0 $(GO) test -tags headless -short -count=1 \
+                ./cmd/liz/... \
                 ./internal/nucleo/config/... \
                 ./internal/nucleo/permisos/... \
                 ./internal/nucleo/memoria/... \
                 ./internal/nucleo/orquestador/... \
                 ./internal/nucleo/herramientas/ \
                 ./internal/nucleo/herramientas/registro/... \
-                ./internal/nucleo/herramientas/integradas/...
+                ./internal/nucleo/herramientas/integradas/... \
+                ./internal/nucleo/herramientas/auto_creacion/... \
+                ./internal/nucleo/logger/... \
+                ./internal/nucleo/servidor/...
 
 ## vet: Ejecuta go vet
 vet:

@@ -43,13 +43,13 @@ jobs:
       - name: Go vet (headless)
         run: CGO_ENABLED=0 go vet -tags headless ./cmd/liz/...
 
-      - name: Go vet (núcleo — paquetes estables)
+      - name: Go vet (núcleo — todos los paquetes headless)
         run: |
-          # Vetear solo paquetes sin tests rotos preexistentes.
-          # internal/desktop requiere CGO+OpenGL (excluido).
-          # servidor, pipeline, auto_creacion, logger tienen tests rotos de Fase 9
-          # (deuda técnica fuera de scope de Fase 10).
+          # Vetear todos los paquetes headless. Las exclusiones de Fase 9
+          # se eliminaron tras fix #23 (auto_creacion, logger, pipeline, servidor).
+          # internal/desktop requiere CGO+OpenGL (sigue excluido).
           CGO_ENABLED=0 go vet -tags headless \
+            ./cmd/liz/... \
             ./internal/nucleo/config/... \
             ./internal/nucleo/permisos/... \
             ./internal/nucleo/memoria/... \
@@ -57,6 +57,10 @@ jobs:
             ./internal/nucleo/herramientas/ \
             ./internal/nucleo/herramientas/registro/... \
             ./internal/nucleo/herramientas/integradas/... \
+            ./internal/nucleo/herramientas/auto_creacion/... \
+            ./internal/nucleo/logger/... \
+            ./internal/pipeline/... \
+            ./internal/nucleo/servidor/... \
             ./internal/nucleo/contexto/...
 
       - name: Build (headless, static)
@@ -70,16 +74,22 @@ jobs:
           /tmp/liz-server --version
           ls -lh /tmp/liz-server
 
-      - name: Test (paquetes estables, headless tag)
+      - name: Test (todos los paquetes headless)
         run: |
-          CGO_ENABLED=0 go test -tags headless -short -count=1 -v \
+          CGO_ENABLED=0 go test -tags headless -short -count=1 -v -timeout 120s \
+            ./cmd/liz/... \
             ./internal/nucleo/config/... \
             ./internal/nucleo/permisos/... \
             ./internal/nucleo/memoria/... \
             ./internal/nucleo/orquestador/... \
             ./internal/nucleo/herramientas/ \
             ./internal/nucleo/herramientas/registro/... \
-            ./internal/nucleo/herramientas/integradas/... 2>&1 | tee test-output.txt
+            ./internal/nucleo/herramientas/integradas/... \
+            ./internal/nucleo/herramientas/auto_creacion/... \
+            ./internal/nucleo/logger/... \
+            ./internal/nucleo/servidor/... 2>&1 | tee test-output.txt
+          # Nota: internal/pipeline se excluye de tests hasta resolver bugs
+          # lógicos preexistentes (issue separado). Sí pasa go vet.
 
       - name: Upload test output
         if: always()
@@ -166,14 +176,17 @@ jobs:
         run: |
           CGO_ENABLED=0 go build -tags headless -o /tmp/liz-server ./cmd/liz
 
-      - name: Smoke test — arrancar servidor y verificar endpoint /api/v1/health
+      - name: Smoke test — arrancar servidor y verificar endpoint /api/v1/health en puerto 3000
         run: |
-          # Crear config mínima con puerto 3000
+          # Crear config con schema correcto (issue #25):
+          # - wrapper `liz:` raíz
+          # - `puerto:` y `host:` a nivel raíz del bloque `liz:`
+          # - `version: "0.1.0"` (no "0.10.0")
           mkdir -p ~/.liz
           cat > ~/.liz/config.yaml <<EOF
-          nombre: Liz
-          version: "0.10.0"
-          servidor:
+          liz:
+            nombre: Liz
+            version: "0.1.0"
             host: "127.0.0.1"
             puerto: 3000
           EOF
@@ -183,19 +196,15 @@ jobs:
           LIZ_PID=$!
           sleep 3
 
-          # Verificar que responde (intentar puerto 3000 y 8080)
-          HEALTH_OK=false
-          for port in 3000 8080; do
-            echo "Probando puerto $port..."
-            if curl -fsSL "http://localhost:$port/api/v1/health" 2>/dev/null; then
-              echo "✓ Servidor responde en puerto $port"
-              HEALTH_OK=true
-              break
-            fi
-          done
-
-          if [ "$HEALTH_OK" = "false" ]; then
-            echo "✗ Servidor no responde en ningún puerto"
+          # Verificar que responde en el puerto CONFIGURADO (3000).
+          # Si el servidor arranca en otro puerto, el smoke test debe fallar
+          # (issue #25: antes probaba 3000 y 8080 con fallback, lo que
+          # escondía bugs de configuración).
+          echo "Probando puerto 3000..."
+          if curl -fsSL "http://localhost:3000/api/v1/health" 2>/dev/null; then
+            echo "✓ Servidor responde en puerto 3000"
+          else
+            echo "✗ Servidor no responde en puerto 3000"
             echo "=== Process status ==="
             ps aux | grep liz-server || echo "Proceso no encontrado"
             echo "=== Server output ==="
