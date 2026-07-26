@@ -16,7 +16,7 @@ import (
 // TestE2E_ConversacionCompleta simula una conversación completa usuario → respuesta
 // pasando por todos los componentes del pipeline: Receptor → Clasificador → Planificador → Ejecutor → Respondedor
 func TestE2E_ConversacionCompleta_SinLLM(t *testing.T) {
-	cfg := config.NuevoGestorConConfig(&config.Config{
+	cfg := config.NuevoGestorConConfig(&config.Configuracion{
 		Puerto:  3000,
 		Host:    "localhost",
 		Nombre:  "liz-test",
@@ -24,8 +24,15 @@ func TestE2E_ConversacionCompleta_SinLLM(t *testing.T) {
 	})
 
 	log := logger.NuevaConSalida("e2e_test", nil)
-	per := permisos.NuevoGestor()
-	per.Conceder(permisos.PermisoSistema, "testing e2e")
+	// permisos.NuevoGestor() no existe; el constructor es Inicializar(dir) (issue #23).
+	per, err := permisos.Inicializar(t.TempDir())
+	if err != nil {
+		t.Fatalf("error inicializando permisos: %v", err)
+	}
+	// Conceder firma: (tipo, nivel, concedidoPor, razon). Antes se llamaba con 2 args.
+	if err := per.Conceder(permisos.PermSistema, permisos.NivelTotal, "e2e_test", "testing e2e"); err != nil {
+		t.Fatalf("error concediendo permiso: %v", err)
+	}
 
 	srv := Nuevo(cfg, per, log)
 
@@ -76,7 +83,7 @@ func TestE2E_ConversacionCompleta_SinLLM(t *testing.T) {
 		srv.router.ServeHTTP(rr, req)
 
 		if rr.Code != http.StatusOK {
-			t.Fatalf("esperaba 200, got %d", rr.Code, rr.Body.String())
+			t.Fatalf("esperaba 200, got %d: %s", rr.Code, rr.Body.String())
 		}
 	})
 
@@ -89,7 +96,7 @@ func TestE2E_ConversacionCompleta_SinLLM(t *testing.T) {
 		srv.router.ServeHTTP(rr, req)
 
 		if rr.Code != http.StatusOK {
-			t.Fatalf("esperaba 200, got %d", rr.Code, rr.Body.String())
+			t.Fatalf("esperaba 200, got %d: %s", rr.Code, rr.Body.String())
 		}
 	})
 
@@ -102,7 +109,7 @@ func TestE2E_ConversacionCompleta_SinLLM(t *testing.T) {
 		srv.router.ServeHTTP(rr, req)
 
 		if rr.Code != http.StatusOK {
-			t.Fatalf("esperaba 200, got %d", rr.Code, rr.Body.String())
+			t.Fatalf("esperaba 200, got %d: %s", rr.Code, rr.Body.String())
 		}
 	})
 
@@ -115,7 +122,7 @@ func TestE2E_ConversacionCompleta_SinLLM(t *testing.T) {
 		srv.router.ServeHTTP(rr, req)
 
 		if rr.Code != http.StatusOK {
-			t.Fatalf("esperaba 200, got %d", rr.Code, rr.Body.String())
+			t.Fatalf("esperaba 200, got %d: %s", rr.Code, rr.Body.String())
 		}
 	})
 
@@ -128,7 +135,7 @@ func TestE2E_ConversacionCompleta_SinLLM(t *testing.T) {
 		srv.router.ServeHTTP(rr, req)
 
 		if rr.Code != http.StatusOK {
-			t.Fatalf("esperaba 200, got %d", rr.Code, rr.Body.String())
+			t.Fatalf("esperaba 200, got %d: %s", rr.Code, rr.Body.String())
 		}
 	})
 
@@ -139,7 +146,7 @@ func TestE2E_ConversacionCompleta_SinLLM(t *testing.T) {
 		srv.router.ServeHTTP(rr, req)
 
 		if rr.Code != http.StatusOK {
-			t.Fatalf("esperaba 200, got %d", rr.Code, rr.Body.String())
+			t.Fatalf("esperaba 200, got %d: %s", rr.Code, rr.Body.String())
 		}
 
 		var resp RespuestaAPI
@@ -192,7 +199,7 @@ func TestE2E_ConversacionCompleta_SinLLM(t *testing.T) {
 // TestE2E_FlujoCompletoConSesiones simula un flujo donde se crean sesiones
 // y se envían múltiples mensajes a la misma sesión.
 func TestE2E_FlujoCompletoConSesiones(t *testing.T) {
-	cfg := config.NuevoGestorConConfig(&config.Config{
+	cfg := config.NuevoGestorConConfig(&config.Configuracion{
 		Puerto:  3001,
 		Host:    "localhost",
 		Nombre:  "liz-e2e",
@@ -200,8 +207,8 @@ func TestE2E_FlujoCompletoConSesiones(t *testing.T) {
 	})
 
 	log := logger.NuevaConSalida("e2e_sesiones", nil)
-	per := permisos.NuevoGestor()
-	per.Conceder(permisos.PermisoSistema, "testing e2e")
+	per, _ := permisos.Inicializar(t.TempDir())
+	_ = per.Conceder(permisos.PermSistema, permisos.NivelTotal, "e2e_test", "testing e2e")
 
 	srv := Nuevo(cfg, per, log)
 	pipe := pipeline.Nuevo(pipeline.NuevasOpciones{})
@@ -265,7 +272,7 @@ func TestE2E_FlujoCompletoConSesiones(t *testing.T) {
 // TestE2E_HealthEndpoints verifica que todos los endpoints de health funcionan
 // después de una conversación completa.
 func TestE2E_HealthEndpoints(t *testing.T) {
-	cfg := config.NuevoGestorConConfig(&config.Config{
+	cfg := config.NuevoGestorConConfig(&config.Configuracion{
 		Puerto:  3002,
 		Host:    "localhost",
 		Nombre:  "liz-health",
@@ -273,7 +280,7 @@ func TestE2E_HealthEndpoints(t *testing.T) {
 	})
 
 	log := logger.NuevaConSalida("e2e_health", nil)
-	per := permisos.NuevoGestor()
+	per, _ := permisos.Inicializar(t.TempDir())
 	srv := Nuevo(cfg, per, log)
 
 	// Health check

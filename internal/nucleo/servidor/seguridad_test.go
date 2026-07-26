@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -99,7 +100,7 @@ func TestRateLimiter_Concurrente(t *testing.T) {
 // ============================================================================
 
 func TestMiddlewareRateLimit_Permite(t *testing.T) {
-	srv := createTestServidor(t)
+	srv, _, _ := setupTestServidor(t)
 
 	handler := srv.middlewareRateLimit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -117,12 +118,13 @@ func TestMiddlewareRateLimit_Permite(t *testing.T) {
 }
 
 func TestMiddlewareRateLimit_Bloquea(t *testing.T) {
-	srv := createTestServidor(t)
+	srv, _, _ := setupTestServidor(t)
 	limiter := newRateLimiter(2, time.Minute)
 
 	handler := srv.middlewareRateLimit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
+	_ = handler // el middleware crea su propio limiter internamente; no usamos este handler
 
 	// Nota: el middleware crea su propio limiter, así que para probar el bloqueo
 	// necesitamos usar el limiter directamente

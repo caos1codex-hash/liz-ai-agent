@@ -2,35 +2,53 @@ package auto_creacion
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"strings"
 	"testing"
+	"time"
 )
+
+// randomID retorna un identificador aleatorio para tests (issue #23).
+// Antes se usaba una funcion randomID que no existia en el paquete.
+func randomID() string {
+	return fmt.Sprintf("%d", time.Now().UnixNano())
+}
+
+// nuevoGestorTest construye un Gestor via NuevoGestor con un directorio temporal.
+// Antes los tests usaban &Gestor{directorio: ...} pero el campo directorio no
+// existe en el struct (issue #23).
+func nuevoGestorTest(t *testing.T, dir string) *Gestor {
+	t.Helper()
+	g, err := NuevoGestor(nil, dir, nil)
+	if err != nil {
+		t.Fatalf("error construyendo Gestor de test: %v", err)
+	}
+	return g
+}
 
 // ============================================================================
 // Tests adicionales para gestor.go — cobertura de funciones no cubiertas
 // ============================================================================
 
 func TestGestor_CargarTodas_ErrorDirectorio(t *testing.T) {
-	// Directorio que no existe — debe manejar gracefully
-	g := &Gestor{
-		directorio: "/tmp/no_existe_liz_auto_creacion_test_" + randomID(),
-	}
+	// Directorio temporal vacío — CargarTodas no debería panic ni retornar nil.
+	// Nota: NuevoGestor crea el directorio si no existe, así que usamos un
+	// directorio temporal vacío en lugar de uno inexistente (issue #23).
+	g := nuevoGestorTest(t, t.TempDir())
 
-	resultados := g.CargarTodas()
-	if resultados == nil {
-		t.Fatal("CargarTodas no debería retornar nil")
+	cargadas, errs := g.CargarTodas()
+	if cargadas != 0 {
+		t.Errorf("esperaba 0 cargadas en dir vacío, got %d", cargadas)
 	}
-	// Debería retornar slice vacío o errores, pero no panic
-	for _, r := range resultados {
-		if r.Exito {
-			t.Errorf("esperaba fallo para herramienta en directorio inexistente: %s", r.Nombre)
-		}
+	// errs puede ser nil o vacío en un directorio vacío — ambos OK
+	for _, e := range errs {
+		t.Logf("error esperado en dir vacío: %v", e)
 	}
 }
 
 func TestGestor_Eliminar_Inexistente(t *testing.T) {
-	g := &Gestor{
-		directorio: t.TempDir(),
-	}
+	g := nuevoGestorTest(t, t.TempDir())
 
 	// No debería fallar eliminando algo que no existe
 	err := g.Eliminar("no_existe")
@@ -39,40 +57,29 @@ func TestGestor_Eliminar_Inexistente(t *testing.T) {
 }
 
 func TestGestor_Recargar_SinFuente(t *testing.T) {
-	tmpDir := t.TempDir()
-	g := &Gestor{
-		directorio: tmpDir,
-	}
+	g := nuevoGestorTest(t, t.TempDir())
 
-	// Recargar algo que no existe
-	err := g.Recargar(context.Background(), "no_existe", false)
+	// Recargar algo que no existe (firma: ctx, nombre, nuevoFuente, usarLLM)
+	_, err := g.Recargar(context.Background(), "no_existe", "", false)
 	// No debería panic
 	_ = err
 }
 
 func TestGestor_Probar_SinCatalogo(t *testing.T) {
-	tmpDir := t.TempDir()
-	g := &Gestor{
-		directorio: tmpDir,
-	}
+	g := nuevoGestorTest(t, t.TempDir())
 
-	// Probar sin inyectar al catálogo
-	err := g.Probar(context.Background(), "no_existe", nil)
+	// Probar sin inyectar al catálogo. Probar retorna (Resultado, error).
+	_, err := g.Probar(context.Background(), "no_existe", nil)
 	_ = err
 }
 
-func TestGestor_ObtenerInfo_Inexistente(t *testing.T) {
-	g := &Gestor{
-		directorio: t.TempDir(),
-	}
-
-	info, err := g.ObtenerInfo("no_existe")
-	if err != nil {
-		t.Logf("error esperado para herramienta inexistente: %v", err)
-	} else {
-		t.Log("ObtenerInfo retornó info sin error (puede ser nil)")
-	}
-	_ = info
+// TestGestor_ObtenerInfo_Inexistente: removido.
+// El método ObtenerInfo no existe en Gestor (issue #23). El método real es
+// Obtener(ctx, nombre) que retorna (herramientas.Resultado, error) y está
+// en el catálogo, no en el gestor. Test removido hasta que se implemente
+// ObtenerInfo o se reescriba contra el API real.
+func TestGestor_ObtenerInfo_Inexistente_Skipped(t *testing.T) {
+	t.Skip("ObtenerInfo no existe en Gestor; ver issue #23")
 }
 
 // ============================================================================
@@ -81,8 +88,10 @@ func TestGestor_ObtenerInfo_Inexistente(t *testing.T) {
 
 func TestCompilar_FuenteInvalida(t *testing.T) {
 	tmpDir := t.TempDir()
+	c := NuevoCompilador()
 
-	_, _, err := Compilar(tmpDir, "fuente_invalido.go", "esta_no_es_go_valido{{{")
+	// Compilar es método en *Compilador: (ctx, dirHerramienta, fuenteGo) → (*ResultadoCompilacion, error)
+	_, err := c.Compilar(context.Background(), tmpDir, "esta_no_es_go_valido{{{")
 	if err == nil {
 		t.Fatal("esperaba error compilando fuente inválida")
 	}
@@ -90,13 +99,14 @@ func TestCompilar_FuenteInvalida(t *testing.T) {
 
 func TestCompilar_FuenteVacia(t *testing.T) {
 	tmpDir := t.TempDir()
+	c := NuevoCompilador()
 
-	// Escribir archivo Go vacío
-	escribirArchivo(t, tmpDir+"/vacio.go", "package main\n")
-
-	_, _, err := Compilar(tmpDir, "vacio.go", "")
-	if err != nil {
-		t.Fatalf("archivo Go vacío debería compilar: %v", err)
+	// Compilar con fuente vacío debería fallar validación (issue #23).
+	// (El test original escribía un archivo y pasaba source="" a Compilar,
+	// pero Compilar valida el source string, no el archivo.)
+	_, err := c.Compilar(context.Background(), tmpDir, "")
+	if err == nil {
+		t.Fatal("esperaba error compilando fuente vacío")
 	}
 }
 
@@ -111,24 +121,20 @@ func escribirArchivo(t *testing.T, ruta, contenido string) {
 // Tests adicionales para registro.go
 // ============================================================================
 
-func TestRegistro_MetadataInvalida(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Metadata JSON roto
-	rutaMetadata := tmpDir + "/metadata.json"
-	os.WriteFile(rutaMetadata, []byte("no es json"), 0644)
-
-	_, err := LeerMetadata(rutaMetadata)
-	if err == nil {
-		t.Log("metadata inválida puede ser aceptada (depende de implementación)")
-	}
+// TestRegistro_MetadataInvalida: removido. LeerMetadata no es función de paquete;
+// la lectura de metadata es vía Registro.Obtener(nombre) que lee de disco (issue #23).
+func TestRegistro_MetadataInvalida_Skipped(t *testing.T) {
+	t.Skip("LeerMetadata no es función de paquete; ver issue #23")
 }
 
 func TestRegistro_ListarVacio(t *testing.T) {
-	tmpDir := t.TempDir()
-	os.MkdirAll(tmpDir+"/herramientas", 0755)
+	// ListarHerramientas no es función de paquete; usar Registro.Listar() (issue #23).
+	reg, err := NuevoRegistro(t.TempDir())
+	if err != nil {
+		t.Fatalf("error creando registro: %v", err)
+	}
 
-	lista, err := ListarHerramientas(tmpDir)
+	lista, err := reg.Listar()
 	if err != nil {
 		t.Fatalf("no esperaba error: %v", err)
 	}
@@ -144,96 +150,37 @@ func TestRegistro_ListarVacio(t *testing.T) {
 // Tests adicionales para tipos.go
 // ============================================================================
 
-func TestSolicitudCreacion_Vacia(t *testing.T) {
-	sol := SolicitudCreacion{}
-	err := sol.Validar()
-	if err == nil {
-		t.Fatal("solicitud vacía debería ser inválida")
-	}
+// TestSolicitudCreacion_Vacia: removido. SolicitudCreacion no tiene método Validar
+// (issue #23). Validación se hace en Gestor.Crear(ctx, sol).
+func TestSolicitudCreacion_Vacia_Skipped(t *testing.T) {
+	t.Skip("SolicitudCreacion.Validar no existe; ver issue #23")
 }
 
-func TestSolicitudCreacion_ConForzarSpec(t *testing.T) {
-	sol := SolicitudCreacion{
-		ForzarSpec: &SpecHerramienta{
-			Nombre:      "test",
-			Descripcion: "test tool",
-			Categoria:   "test",
-			Parametros:  []ParametroSpec{},
-		},
-	}
-	err := sol.Validar()
-	if err != nil {
-		t.Fatalf("con forzar_spec válida no debería dar error: %v", err)
-	}
+// TestSolicitudCreacion_ConForzarSpec: idem.
+func TestSolicitudCreacion_ConForzarSpec_Skipped(t *testing.T) {
+	t.Skip("SolicitudCreacion.Validar no existe; ver issue #23")
 }
 
-func TestResultadoCreacion_Serializar(t *testing.T) {
-	r := ResultadoCreacion{
-		Exito: true,
-		Datos: map[string]interface{}{"nombre": "test"},
-	}
-	_ = r // Verificar que los campos son accesibles
+// TestResultadoCreacion_Serializar: removido. El struct ResultadoCreacion no
+// tiene campos Exito ni Datos (issue #23). Campos reales: Especificacion,
+// Deteccion, Generacion, Compilacion, CargaExitosa, Registrada, Metadata, Error.
+func TestResultadoCreacion_Serializar_Skipped(t *testing.T) {
+	t.Skip("ResultadoCreacion no tiene campos Exito/Datos; ver issue #23")
 }
 
-func TestSpecHerramienta_Campos(t *testing.T) {
-	spec := SpecHerramienta{
-		Nombre:      "compresor",
-		Descripcion: "Comprime archivos",
-		Categoria:   "archivo",
-		Parametros: []ParametroSpec{
-			{Nombre: "input", Tipo: "string", Requerido: true, Descripcion: "Archivo de entrada"},
-		},
-	}
-
-	if spec.Nombre != "compresor" {
-		t.Errorf("nombre incorrecto: %s", spec.Nombre)
-	}
-	if len(spec.Parametros) != 1 {
-		t.Errorf("esperaba 1 parámetro, got %d", len(spec.Parametros))
-	}
-}
-
-func TestParametroSpec_Default(t *testing.T) {
-	p := ParametroSpec{
-		Nombre:    "modo",
-		Tipo:      "string",
-		Requerido: false,
-		Default:   "rapido",
-	}
-
-	if p.Default != "rapido" {
-		t.Errorf("default incorrecto: %v", p.Default)
-	}
-}
-
-func TestMetadataHerramienta_Estructura(t *testing.T) {
-	m := MetadataHerramienta{
-		Nombre:      "test",
-		Creado:      "2024-01-01T00:00:00Z",
-		Modificado:  "2024-01-01T00:00:00Z",
-		Ejecuciones: 5,
-		Exito:       4,
-		Fallos:      1,
-	}
-
-	if m.Nombre != "test" {
-		t.Error("nombre incorrecto")
-	}
-	if m.Ejecuciones != 5 {
-		t.Error("ejecuciones incorrectas")
-	}
-}
-
-// ============================================================================
-// Tests adicionales para plantillas.go
-// ============================================================================
+// (Tests TestSpecHerramienta_Campos, TestParametroSpec_Default, TestMetadataHerramienta_Estructura
+// removidos: tipos referenciados (ParametroSpec, MetadataHerramienta.Exito) no existen.
+// Ver issue #23.)
 
 func TestExtraerFuenteGo_Basico(t *testing.T) {
+	// ExtraerFuenteGo aplica TrimSpace al resultado. El test debe comparar
+	// contra la versión trimmed del input (issue #23).
 	codigo := "package main\n\nfunc main() {\n\tfmt.Println(\"hola\")\n}\n"
+	esperado := strings.TrimSpace(codigo)
 
 	fuente := ExtraerFuenteGo(codigo)
-	if fuente != codigo {
-		t.Error("debería retornar el código completo")
+	if fuente != esperado {
+		t.Errorf("debería retornar el código completo (trimado). got=%q want=%q", fuente, esperado)
 	}
 }
 

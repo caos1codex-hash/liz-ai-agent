@@ -132,6 +132,12 @@ func (l *Logger) registrar(nivel Nivel, formato string, args ...interface{}) {
 	}
 
 	// Escribir a stdout en formato legible con colores
+	// Si salida es nil (p.ej. en tests que solo quieren archivo), usar io.Discard
+	// para evitar panic en fmt.Fprint (issue #23).
+	salida := l.salida
+	if salida == nil {
+		salida = io.Discard
+	}
 	colorReset := "\033[0m"
 	color := "\033[37m" // blanco por defecto
 	switch nivel {
@@ -149,7 +155,7 @@ func (l *Logger) registrar(nivel Nivel, formato string, args ...interface{}) {
 
 	lineaSalida := fmt.Sprintf("%s%s [%-5s] [%-15s] %s%s\n",
 		color, timestamp, nivel, l.modulo, mensaje, colorReset)
-	fmt.Fprint(l.salida, lineaSalida)
+	fmt.Fprint(salida, lineaSalida)
 }
 
 // Debug loguea a nivel DEBUG.

@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -314,7 +315,7 @@ func TestPipeline_ProcesarStream_ConOrquestador(t *testing.T) {
 func TestPipeline_ProcesarStream_StreamError(t *testing.T) {
 	orch := &mockOrquestador{
 		completarStreamFunc: func(ctx context.Context, prompt, tipo string) (<-chan ChunkOrquestador, error) {
-			ch := make(chan ChunkOrquestador, 2)
+			ch := make(chan ChunkOrquestador, 10)
 			ch <- ChunkOrquestador{Error: fmt.Errorf("timeout de stream")}
 			ch <- ChunkOrquestador{Done: true}
 			close(ch)
@@ -1095,6 +1096,7 @@ func TestEjecutor_ConCallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("no esperaba error: %v", err)
 	}
+	_ = resultados // EjecutarPlan puede retornar datos; no los validamos en este test
 	if len(chunks) == 0 {
 		t.Error("esperaba chunks del callback")
 	}
@@ -1303,9 +1305,9 @@ func TestRespondedor_GenerarRespuestaSimple(t *testing.T) {
 func TestRespondedor_GenerarRespuestaSimpleStream(t *testing.T) {
 	orch := &mockOrquestador{
 		completarStreamFunc: func(ctx context.Context, prompt, tipo string) (<-chan ChunkOrquestador, error) {
-			ch := make(chan ChunkOrquestador, 2)
-			ch <- ChunkOrquestador{Delta: "stream ", Modelo: "m"}
-			ch <- ChunkOrquestador{Delta: "simple", Modelo: "m"}
+			ch := make(chan ChunkOrquestador, 10)
+			ch <- ChunkOrquestador{Delta: "stream ", Modelo: "stream-m"}
+			ch <- ChunkOrquestador{Delta: "simple", Modelo: "stream-m"}
 			ch <- ChunkOrquestador{Done: true}
 			close(ch)
 			return ch, nil
