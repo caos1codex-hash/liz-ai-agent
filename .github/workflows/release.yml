@@ -317,6 +317,33 @@ jobs:
         with:
           path: release-assets/
           merge-multiple: true
+        # Si falla la descarga con merge-multiple (issue conocido con artifacts grandes),
+        # descargar individualmente como fallback.
+        continue-on-error: true
+
+      - name: Fallback — descargar artifacts individualmente si merge falló
+        if: ${{ hashFiles('release-assets/*') == '' }}
+        run: |
+          mkdir -p release-assets
+          for artifact in liz-linux-amd64 liz-server-linux-amd64 liz-server-linux-arm64 \
+                          liz-server-darwin-amd64 liz-server-darwin-arm64 packages; do
+            echo "Descargando artifact: $artifact"
+            mkdir -p "tmp-$artifact"
+            gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+              --jq ".artifacts[] | select(.name == \"$artifact\") | .archive_download_url" \
+              | head -1 \
+              | xargs -I{} gh api {} > "$artifact.zip" 2>/dev/null || true
+            if [ -f "$artifact.zip" ] && [ -s "$artifact.zip" ]; then
+              unzip -o -q "$artifact.zip" -d "release-assets/" && rm "$artifact.zip"
+              echo "✓ $artifact descargado"
+            else
+              echo "✗ $artifact no se pudo descargar (probablemente no existe)"
+              rm -f "$artifact.zip"
+            fi
+          done
+          ls -lh release-assets/
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: List release assets
         run: |
