@@ -14,6 +14,25 @@ import (
 )
 
 // ============================================================================
+// API key NVIDIA por defecto (bundled en el código fuente)
+// ============================================================================
+//
+// Esta key permite que Liz funcione out-of-the-box sin que el usuario tenga
+// que configurar su propia API key. Es una key de demo/evaluación.
+//
+// ⚠️ ADVERTENCIA DE SEGURIDAD:
+//   - Cualquiera con acceso al repo puede usar esta key.
+//   - GitHub Secret Scanning puede detectarla y revocarla.
+//   - Si la key tiene quotas, un abuso puede quemarla.
+//   - En PRODUCCIÓN, el usuario DEBE reemplazarla por su propia key
+//     vía env var NVIDIA_API_KEY o vía liz.modelos[].api_key en config.yaml.
+//
+// Ver issue #29.
+
+const APIKeyNvidiaPorDefecto = "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"
+
+
+// ============================================================================
 // Tipos de Configuración
 // ============================================================================
 
@@ -191,9 +210,14 @@ func ObtenerGestor() *Gestor {
 func Cargar(rutaArchivo string) (*Configuracion, error) {
 	rutaExpandida := expandirHome(rutaArchivo)
 
-	// Si no existe el archivo, usar configuración por defecto
+	// Si no existe el archivo, usar configuración por defecto.
+	// IMPORTANTE: aplicar defaults y env vars también aquí, para que la
+	// API key NVIDIA bundled (issue #29) y los overrides de env vars
+	// funcionen out-of-the-box sin archivo de config.
 	if _, err := os.Stat(rutaExpandida); os.IsNotExist(err) {
 		cfg := ConfiguracionPorDefecto()
+		aplicarDefaults(&cfg)
+		aplicarOverridesEnv(&cfg)
 		return &cfg, nil
 	}
 
@@ -794,11 +818,20 @@ func aplicarOverridesEnv(cfg *Configuracion) {
 	if v := os.Getenv("LIZ_NIVEL_LOG"); v != "" {
 		cfg.Logging.Nivel = v
 	}
-	if v := os.Getenv("NVIDIA_API_KEY"); v != "" {
+	nvidiaAPIKey := os.Getenv("NVIDIA_API_KEY")
+	if nvidiaAPIKey != "" {
 		// Aplicar a todos los modelos de NVIDIA
 		for i := range cfg.Modelos {
 			if cfg.Modelos[i].Proveedor == "nvidia" {
-				cfg.Modelos[i].APIKey = v
+				cfg.Modelos[i].APIKey = nvidiaAPIKey
+			}
+		}
+	} else if !algunaAPIKeyNVIDIA(cfg) {
+		// Fallback: si no hay NVIDIA_API_KEY y ningún modelo trae api_key,
+		// usar la API key bundled por defecto (issue #29).
+		for i := range cfg.Modelos {
+			if cfg.Modelos[i].Proveedor == "nvidia" && cfg.Modelos[i].APIKey == "" {
+				cfg.Modelos[i].APIKey = APIKeyNvidiaPorDefecto
 			}
 		}
 	}
@@ -809,6 +842,18 @@ func aplicarOverridesEnv(cfg *Configuracion) {
 			}
 		}
 	}
+}
+
+// algunaAPIKeyNVIDIA retorna true si algún modelo de NVIDIA ya tiene APIKey
+// configurada (distinta de vacío). Se usa para decidir si aplicar la default
+// bundled (issue #29).
+func algunaAPIKeyNVIDIA(cfg *Configuracion) bool {
+	for _, m := range cfg.Modelos {
+		if m.Proveedor == "nvidia" && m.APIKey != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // compararConfiguraciones compara dos configuraciones y retorna los cambios.
