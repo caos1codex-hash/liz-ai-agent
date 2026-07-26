@@ -1,3 +1,393 @@
+# Changelog — Liz AI Agent
+
+Todos los cambios notables de este proyecto se documentan en este archivo.
+
+El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/),
+y este proyecto adheriere a [Semantic Versioning](https://semver.org/lang/es/).
+
+---
+
+## [0.10.0] — Fase 10 (Release v0.1.0 — Publicación Multi-Plataforma)
+
+> **Primer release oficial de Liz.** Binarios precompilados para 5 plataformas,
+> paquetes nativos (DEB/RPM/AUR), imagen Docker multi-arch, instalador automático
+> multi-distro, y CI/CD completamente automatizado.
+>
+> **Filosofía**: *"Si no está en GitHub, no existe."* Todo se distribuye vía
+> [releases de GitHub](https://github.com/caos1codex-hash/liz-ai-agent/releases)
+> y [ghcr.io](https://github.com/caos1codex-hash/liz-ai-agent/pkgs/container/liz-ai-agent).
+
+### Novedades destacadas
+
+- **Build tag `headless`** que permite compilar un binario servidor puro sin
+  dependencias de Fyne/OpenGL, cross-compilable a cualquier plataforma Go.
+  Esto habilita: Docker ligero (~10MB), binarios estáticos para macOS y ARM64,
+  y CI sin dependencias del sistema.
+- **Cross-compilation automatizada** vía GitHub Actions matrix strategy: 5
+  binarios se construyen en paralelo (linux amd64/arm64 + darwin amd64/arm64
+  + desktop linux amd64 con GUI Fyne).
+- **Empaquetado nativo** automático: DEB para Debian/Ubuntu, RPM para
+  Fedora/RHEL, PKGBUILD para AUR, y tarball genérico portable.
+- **Imagen Docker multi-arch** publicada en `ghcr.io/caos1codex-hash/liz-ai-agent`
+  para `linux/amd64` y `linux/arm64`. Imagen final basada en `distroless/static`
+  (~10MB) con healthcheck y security_opt `no-new-privileges`.
+- **Instalador automático** `install.sh` multi-distro que detecta la
+  distribución, descarga el binario adecuado, instala dependencias del sistema,
+  crea la configuración inicial y la entrada de menú `.desktop`.
+- **CI/CD completo**: workflow `ci.yml` (push/PR) para validar cada commit,
+  workflow `release.yml` (tag-triggered) que automatiza todo el pipeline de
+  publicación.
+
+### Build y compilación
+
+#### Build tag `headless` (nuevo)
+
+- Refactor de `cmd/liz/main.go` en 3 archivos:
+  - `main.go` — entry point común (config, permisos, contexto, memoria, orquestador, herramientas, servidor, pipeline)
+  - `desktop_desktop.go` (`//go:build !headless`) — importa `internal/desktop`, arranca GUI Fyne
+  - `desktop_headless.go` (`//go:build headless`) — stub sin importar `internal/desktop`, solo servidor HTTP
+- Compilación:
+  - **Default** (sin tag): binario completo con GUI Fyne (CGO + OpenGL, ~30MB)
+  - **`-tags headless`**: binario servidor puro (CGO=0, estático, ~7MB, cross-compilable)
+- Beneficios:
+  - Docker image ~10MB (distroless/static, sin libGL runtime)
+  - Cross-compilación a cualquier GOOS/GOARCH sin toolchain C
+  - CI builds sin instalar dev headers OpenGL
+  - Reproducible en cualquier entorno con Go 1.22+
+
+#### Cross-compilation (5 plataformas)
+
+| Plataforma | Binario | CGO | Tags | Tamaño aprox. |
+|------------|---------|-----|------|---------------|
+| linux/amd64 | `liz-linux-amd64` | 1 | (default) | ~30MB (desktop) |
+| linux/amd64 | `liz-server-linux-amd64` | 0 | headless | ~7MB |
+| linux/arm64 | `liz-server-linux-arm64` | 0 | headless | ~7MB |
+| darwin/amd64 | `liz-server-darwin-amd64` | 0 | headless | ~8MB |
+| darwin/arm64 | `liz-server-darwin-arm64` | 0 | headless | ~8MB |
+
+> Windows se añadirá en v0.2.0 (Fase 5 usa `syscall.SIGSTOP/SIGCONT` no
+> disponibles en Windows — requiere build tags para platform-specific syscall).
+
+### Empaquetado nativo
+
+#### DEB (Debian/Ubuntu/Mint/Pop!_OS)
+
+- Paquete `liz_<version>_amd64.deb` con:
+  - Binario en `/usr/local/bin/liz`
+  - Documentación en `/usr/share/doc/liz/` (README, CHANGELOG, copyright)
+  - Entrada de menú `.desktop` en `/usr/share/applications/`
+  - Config de ejemplo en `/etc/liz/config.yaml.example`
+  - Script `postinst` que guía al usuario
+  - Script `prerm` que detiene procesos en ejecución
+  - Dependencias declaradas: `libgl1-mesa-glx, libx11-6, libxrandr2, libxinerama1, libxcursor1, libxi6, libxxf86vm1, libwayland-client0, libxkbcommon0, libegl1, libglx0`
+
+#### RPM (Fedora/RHEL/CentOS/Rocky/Alma)
+
+- Paquete `liz-<version>-1.x86_64.rpm` con spec file completo:
+  - Secciones `%prep`, `%build`, `%install`, `%files`, `%post`, `%preun`, `%changelog`
+  - Mismo layout de archivos que el DEB
+  - Dependencias: `mesa-libGL libX11 libXrandr libXinerama libXcursor libXi libXxf86vm wayland-client libxkbcommon libEGL libglvnd-glx`
+
+#### AUR (Arch Linux/Manjaro/Garuda)
+
+- `packaging/PKGBUILD` completo:
+  - `pkgver`, `pkgrel`, `arch=('x86_64')`
+  - `depends` con paquetes Arch (mesa, libx11, libxrandr, etc.)
+  - `makedepends` con go, git, pkgconf
+  - `build()` compila ambos binarios (desktop + headless)
+  - `check()` ejecuta tests estables con tag headless
+  - `package()` instala binarios, docs, .desktop, scripts
+
+#### Tarball genérico
+
+- `liz-v<version>.tar.gz` con:
+  - `bin/` — todos los binarios disponibles
+  - `configs/` — config de ejemplo
+  - `scripts/` — install.sh, uninstall.sh, build-release.sh
+  - `docs/` — documentación completa
+  - `README.md`, `CHANGELOG.md`, `LICENSE`
+  - `INSTALL.txt` con instrucciones rápidas
+- Portable a cualquier distro Linux y macOS
+
+#### Checksums
+
+- `checksums-v<version>.txt` con SHA-256 de cada tarball
+- Generado automáticamente en cada release
+- Verificable con `sha256sum -c checksums-v0.10.0.txt`
+
+### Docker
+
+#### Dockerfile multi-stage multi-arch
+
+- **Stage 1 (builder)**: `golang:1.22-alpine`
+  - Instala `git`, `ca-certificates`, `tzdata`
+  - Caché de dependencias Go con `go mod download` en layer separado
+  - Build estático con `CGO_ENABLED=0 -tags headless -trimpath -ldflags="-s -w"`
+  - Argumentos `TARGETOS`, `TARGETARCH`, `VERSION` (inyectados por buildx)
+- **Stage 2 (runtime)**: `gcr.io/distroless/static-debian12:nonroot`
+  - Imagen mínima sin shell, sin package manager, sin libs
+  - Usuario `nonroot` (UID 65532) integrado
+  - Tamaño final: ~10MB
+  - Labels OCI estándar (`org.opencontainers.image.*`)
+  - `VOLUME /home/liz/.liz` para datos persistentes
+  - `EXPOSE 3000`
+  - `HEALTHCHECK` con `liz-server --version`
+
+#### docker-compose.yml
+
+- Servicio `liz` con:
+  - Imagen `ghcr.io/caos1codex-hash/liz-ai-agent:latest`
+  - Puerto 3000 mapeado
+  - Volumen `liz-data:/home/liz/.liz` para persistencia
+  - Variables de entorno: `NVIDIA_API_KEY`, `LIZ_SERVIDOR_HOST`, `LIZ_SERVIDOR_PUERTO`, `TZ`
+  - `restart: unless-stopped`
+  - Healthcheck con timeout de 3s
+  - Resource limits: 2 CPUs, 512MB RAM (reservations: 0.1 CPU, 64MB)
+  - Log rotation: `max-size: 10m`, `max-file: 3`
+  - `security_opt: no-new-privileges:true`
+
+#### Dockerfile.dev (para desarrollo)
+
+- Imagen `golang:1.22-bookworm` con todas las deps OpenGL dev instaladas
+- Útil para desarrolladores en macOS/Windows que quieren compilar el binario
+  desktop Linux sin instalar dependencias nativas
+
+#### .dockerignore
+
+- Reduce el contexto de build excluyendo: `bin/`, `dist/`, `.git/`, `docs/`,
+  `scripts/`, `packaging/`, `*.out`, `*.log`, IDE files, etc.
+
+### Instalador automático
+
+#### `scripts/install.sh`
+
+Instalador multi-distro que:
+
+- **Detecta plataforma y arquitectura** automáticamente (`uname -s`, `uname -m`)
+  - Linux x86_64 → `linux-amd64`
+  - Linux ARM64 → `linux-arm64`
+  - macOS Intel → `darwin-amd64`
+  - macOS Apple Silicon → `darwin-arm64`
+- **Detecta distro Linux** vía `/etc/os-release`:
+  - `ID=ubuntu` o `ID_LIKE=debian` → `debian` (apt)
+  - `ID=fedora` o `ID_LIKE=rhel` → `fedora` (dnf)
+  - `ID=arch` o `ID_LIKE=arch` → `arch` (pacman)
+  - `ID=opensuse` → `opensuse` (zypper)
+- **Instala dependencias del sistema** según distro:
+  - Debian: `apt-get install libgl1-mesa-dev xorg-dev libxrandr-dev ...`
+  - Fedora: `dnf install mesa-libGL-devel libXrandr-devel ...`
+  - Arch: `pacman -S mesa libxrandr libxinerama ...`
+- **Descarga el binario** del release de GitHub correspondiente:
+  - `https://github.com/.../releases/download/v<ver>/liz-<platform>-<arch>-v<ver>.tar.gz`
+  - Verifica que el binario arranca con `--version`
+- **Modos de operación**:
+  - `--headless` → instala `liz-server` (sin deps OpenGL)
+  - `--from-source` → clona repo y compila (instala Go si falta)
+  - `--prefix /opt/liz` → prefijo personalizado
+  - `--version v0.10.0` → versión específica
+  - `--no-deps` → no instala deps del sistema
+  - `--verbose` → output detallado
+- **Post-instalación**:
+  - Crea `~/.liz/` y copia config de ejemplo
+  - Crea entrada de menú `.desktop` en `~/.local/share/applications/`
+  - Muestra banner ASCII art al finalizar
+
+#### `scripts/uninstall.sh`
+
+- Detiene procesos en ejecución (`pkill -x liz`)
+- Elimina binarios de `/usr/local/bin/`
+- Elimina entrada de menú `.desktop`
+- Opción `--purge` para eliminar también `~/.liz/` (config, memoria, herramientas auto-creadas, índices)
+
+### CI/CD
+
+#### `.github/workflows/ci.yml` (push/PR triggered)
+
+4 jobs paralelos:
+
+1. **build-test** (ubuntu-latest, Go 1.22):
+   - `go vet -tags headless ./cmd/liz/...`
+   - `go vet ./internal/nucleo/...`
+   - `CGO_ENABLED=0 go build -tags headless -trimpath -ldflags="-s -w -X main.version=..."`
+   - Verifica `--version`
+   - `go test -tags headless -short` en paquetes estables
+   - Sube output de tests como artifact
+
+2. **fmt** (ubuntu-latest):
+   - `gofmt -l .` debe retornar vacío
+
+3. **build-desktop** (ubuntu-latest, Go 1.22):
+   - Instala deps OpenGL: `libgl1-mesa-dev xorg-dev libxrandr-dev ...`
+   - `CGO_ENABLED=1 go build` con GUI Fyne
+   - Verifica `--version`
+
+4. **smoke-test** (ubuntu-latest):
+   - Construye binario headless
+   - Lo arranca en background (`liz-server --headless &`)
+   - `curl http://localhost:3000/api/v1/salud` para verificar
+   - Cleanup del proceso
+
+#### `.github/workflows/release.yml` (tag `v*.*.*` triggered)
+
+4 jobs secuenciales/paralelos:
+
+1. **build-binaries** (matrix strategy, 5 targets en paralelo):
+   - Cada target usa `actions/setup-go@v5` con cache
+   - Desktop linux/amd64 instala deps OpenGL
+   - Headless targets cross-compilan con `CGO_ENABLED=0`
+   - Cada binario se sube como artifact separado
+
+2. **package** (depende de build-binaries):
+   - Descarga todos los artifacts
+   - Crea tarballs (binario + config + README + LICENSE + scripts)
+   - Genera `checksums-v<ver>.txt` con SHA-256
+   - Construye DEB con `dpkg-deb`
+   - Construye RPM con `rpmbuild`
+   - Sube todos los packages como artifact único
+
+3. **docker** (depende de build-binaries):
+   - `docker/setup-qemu-action` + `docker/setup-buildx-action`
+   - Login a GHCR con `GITHUB_TOKEN`
+   - `docker/build-push-action` con:
+     - `platforms: linux/amd64,linux/arm64`
+     - `push: true`
+     - 3 tags: `v<ver>`, `latest`, `sha-<commit>`
+     - Cache GHA para layers
+     - Labels OCI autogenerados por `docker/metadata-action`
+
+4. **release** (depende de los 3 anteriores):
+   - Descarga todos los artifacts
+   - Genera notas de release con tabla de plataformas + instrucciones
+   - `softprops/action-gh-release@v2` crea el release con:
+     - Todos los binarios como assets
+     - Todos los tarballs como assets
+     - DEB y RPM como assets
+     - Checksums como asset
+     - `generate_release_notes: true` para changelog de commits
+     - `prerelease: false` (release estable)
+
+### Makefile renovado
+
+30+ targets organizados por secciones:
+
+```makefile
+# Build
+make build              # binario desktop con GUI Fyne
+make build-headless     # binario servidor puro estático
+make run                # build + ejecutar GUI
+make dev                # go run
+make headless           # build-headless + ejecutar servidor
+
+# Testing
+make test               # todos los tests (tag headless)
+make test-stable        # solo paquetes estables
+make vet                # go vet
+make fmt                # gofmt
+make lint               # vet + fmt check
+
+# Cross-compilation y packaging
+make cross-compile      # 5 binarios + tarballs + checksums
+make package-deb        # .deb
+make package-rpm        # .rpm
+make package-tarball    # tarball genérico
+make package            # todos los anteriores
+make dist               # alias de package
+
+# Docker
+make docker-build       # imagen local
+make docker-build-multiarch  # multi-arch (amd64 + arm64) vía buildx
+make docker-run         # ejecutar contenedor
+make docker-compose-up  # levantar con docker-compose
+make docker-push        # publicar en ghcr.io
+
+# Release
+make release-notes      # generar notas en stdout
+make release-tag        # crear tag y pushear (triggera workflow)
+make release            # dist + release-tag
+
+# Instalación
+make install            # ~/go/bin/liz
+make install-system     # /usr/local/bin/liz (sudo)
+make uninstall          # ejecutar uninstall.sh
+
+# Utilidades
+make version            # mostrar versión actual
+make tidy               # go mod tidy
+make clean              # eliminar bin/
+make clean-all          # clean + caché Go + caché Fyne
+make help               # mostrar todos los targets
+```
+
+### Documentación nueva
+
+- **`docs/INSTALACION.md`** — Guía completa de instalación:
+  - Instalación rápida (una línea con `curl | bash`)
+  - Requisitos previos (mínimos y completos)
+  - Binarios precompilados (descarga manual)
+  - Paquetes nativos (DEB, RPM, AUR)
+  - Docker (run, compose, build desde source)
+  - Compilación desde el código fuente
+  - Configuración inicial (API key NVIDIA)
+  - Verificación de la instalación
+  - Desinstalación
+  - Solución de problemas (libGL missing, exec format error, etc.)
+
+- **`docs/RELEASE.md`** — Proceso de release:
+  - Filosofía "si no está en GitHub, no existe"
+  - Versionado semántico
+  - Pipeline de CI/CD (ci.yml + release.yml)
+  - Cómo publicar un nuevo release (paso a paso)
+  - Verificación post-release
+  - Rollback
+  - Convenciones de commit (Conventional Commits)
+  - Checklist de release
+
+- **`LICENSE`** — Licencia MIT
+
+### Cambios en la versión
+
+- `cmd/liz/main.go`: bump `version = "0.9.0"` → `"0.10.0"`
+- `cmd/liz/main.go`: split en 3 archivos (main + desktop_desktop + desktop_headless)
+- `README.md`: badges renovados, sección de Instalación rápida, sección Fase 10
+- `Makefile`: 30+ nuevos targets para release
+- `docs/ARQUITECTURA.md`: roadmap actualizado (Fase 9 ✅, Fase 10 ✅)
+
+### Añadido
+
+- `cmd/liz/desktop_desktop.go` — GUI Fyne (build tag `!headless`)
+- `cmd/liz/desktop_headless.go` — stub servidor puro (build tag `headless`)
+- `scripts/install.sh` — instalador multi-distro
+- `scripts/uninstall.sh` — desinstalador con --purge
+- `scripts/build-release.sh` — cross-compile 5 plataformas
+- `scripts/package-deb.sh` — empaquetador DEB
+- `scripts/package-rpm.sh` — empaquetador RPM
+- `scripts/package-tarball.sh` — tarball genérico
+- `packaging/PKGBUILD` — PKGBUILD para AUR
+- `docker/Dockerfile` — multi-stage multi-arch
+- `docker/Dockerfile.dev` — imagen de desarrollo
+- `docker/docker-compose.yml` — orquestación lista para producción
+- `.dockerignore` — reduce contexto de build
+- `.github/workflows/ci.yml` — CI en push/PR
+- `.github/workflows/release.yml` — release en tag
+- `docs/INSTALACION.md` — guía completa de instalación
+- `docs/RELEASE.md` — proceso de release
+- `LICENSE` — MIT
+
+### Criterios de aceptación (Issue #18)
+
+- ✅ Binarios compilados para Linux x86_64 y ARM64
+- ✅ `curl -fsSL ... | bash` instala Liz correctamente
+- ✅ Liz se ejecuta y funciona end-to-end (verificado localmente)
+- ✅ Release v0.10.0 publicada en GitHub (vía workflow automatizado)
+- ✅ README con badge de versión
+- ✅ Docker image multi-arch publicada en ghcr.io
+- ✅ Paquetes DEB y RPM generados automáticamente
+- ✅ Instalador multi-distro con detección automática
+- ⏳ Instalación limpia en Ubuntu 22.04 / Fedora 38 / Arch (pendiente de
+  verificación post-release con smoke tests en VM/contenedores limpios)
+
+---
+
 ## [0.10.0] — Fase 9 (Testing, Seguridad y Documentación)
 
 > **Liz ahora tiene suite de tests profesional, seguridad robusta y documentación completa.**

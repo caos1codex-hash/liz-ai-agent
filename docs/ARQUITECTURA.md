@@ -770,8 +770,11 @@ librerías dinámicas del sistema, que están en cualquier Linux desktop).
 | 6 | Auto-Creación | #14 | Liz se programa herramientas que no tiene | ✅ |
 | 7 | Pipeline de Chat | #15 | End-to-end: mensaje → modelo → herramientas → respuesta | ✅ |
 | 8 | App de Escritorio Nativa | #16 | GUI Fyne nativa con streaming SSE, sin navegador | ✅ |
-| 9 | Testing y Docs | #17 | Tests, seguridad, documentación completa | ⏳ |
-| 10 | Release v0.1.0 | #18 | Binarios, instalador, release en GitHub | ⏳ |
+| 9 | Testing y Docs | #17 | Tests, seguridad, documentación completa | ✅ |
+| 10 | Release v0.1.0 | #18 | Binarios, instalador, release en GitHub | ✅ |
+
+> **Fase 10 completada** — v0.10.0 publicado. Ver [CHANGELOG.md](../CHANGELOG.md)
+> y [docs/RELEASE.md](RELEASE.md) para el detalle del release.
 
 ---
 
@@ -1033,5 +1036,154 @@ Todos los tests pasan con `go test -race ./...` en los 22 paquetes del proyecto.
 
 ---
 
+## 15. Fase 10 — Arquitectura de Release y Distribución
+
+### 15.1 Build tag `headless` — dual-mode compilation
+
+Para habilitar cross-compilation y Docker ligero sin refactorizar el paquete
+`internal/desktop` (Fase 8), se introdujo un build tag en `cmd/liz/`:
+
+```
+cmd/liz/
+├── main.go                 # Entry point común (sin importar desktop)
+├── desktop_desktop.go      # //go:build !headless — importa internal/desktop, GUI Fyne
+└── desktop_headless.go     # //go:build headless    — stub, solo servidor HTTP
+```
+
+**Compilación default** (sin tag):
+```bash
+go build -o liz ./cmd/liz
+```
+- Importa `internal/desktop` → arrastra Fyne v2 + OpenGL + GLFW + Wayland
+- Requiere CGO y librerías dev (libGL, libX11, libwayland, etc.)
+- Binario ~30MB, solo Linux x86_64 (CGO nativo)
+- Funciona en modo desktop (con GUI) o `--headless` (sin GUI)
+
+**Compilación headless** (con tag):
+```bash
+CGO_ENABLED=0 go build -tags headless -o liz-server ./cmd/liz
+```
+- NO importa `internal/desktop` → sin Fyne, sin OpenGL, sin CGO
+- Binario 100% estático (~7MB), cross-compilable a cualquier GOOS/GOARCH
+- Solo modo servidor (`--headless` forzado)
+- Ideal para: Docker, servidores, CI, macOS, ARM64, Windows (futuro)
+
+### 15.2 Pipeline de publicación (CI/CD)
+
+```
+git tag v0.10.0 && git push origin v0.10.0
+                       │
+                       ▼
+            ┌──────────────────────┐
+            │ GitHub Actions:      │
+            │ release.yml workflow │
+            └──────────┬───────────┘
+                       │
+        ┌──────────────┼──────────────┐
+        ▼              ▼              ▼
+┌───────────────┐ ┌──────────┐ ┌───────────────┐
+│ Job 1:        │ │ Job 2:   │ │ Job 3:        │
+│ build-binaries│ │ package  │ │ docker        │
+│ (matrix 5)    │ │          │ │ (multi-arch)  │
+└───────┬───────┘ └────┬─────┘ └───────┬───────┘
+        │              │               │
+        └──────────────┼───────────────┘
+                       ▼
+            ┌──────────────────────┐
+            │ Job 4: release       │
+            │ GitHub Release +     │
+            │ assets + notas       │
+            └──────────────────────┘
+```
+
+**Job 1 (build-binaries)** — Matrix strategy, 5 builds paralelos:
+- `desktop-linux-amd64`: CGO=1, instala deps OpenGL, binario con GUI
+- `headless-linux-amd64`: CGO=0, estático
+- `headless-linux-arm64`: cross-compile a ARM64
+- `headless-darwin-amd64`: cross-compile a macOS Intel
+- `headless-darwin-arm64`: cross-compile a macOS Apple Silicon
+
+**Job 2 (package)** — Crea paquetes nativos:
+- Tarballs: `<binario>-v<ver>.tar.gz` con binario + config + README + LICENSE + scripts
+- Checksums: `checksums-v<ver>.txt` con SHA-256
+- DEB: con `dpkg-deb`, control file, postinst, prerm, .desktop entry
+- RPM: con `rpmbuild`, spec file completo
+
+**Job 3 (docker)** — Imagen multi-arch:
+- Multi-stage: `golang:1.22-alpine` → `distroless/static-debian12:nonroot`
+- Plataformas: `linux/amd64, linux/arm64` vía buildx + QEMU
+- Tags: `v<ver>`, `latest`, `sha-<commit>`
+- Publica en `ghcr.io/caos1codex-hash/liz-ai-agent`
+
+**Job 4 (release)** — Publica GitHub Release:
+- Descarga todos los artifacts
+- Genera notas con tabla de plataformas + instrucciones
+- `softprops/action-gh-release@v2` crea el release
+- Sube todos los assets (binarios, tarballs, DEB, RPM, checksums)
+
+### 15.3 Distribución de binarios
+
+| Plataforma | Binario | Modo | Distribución |
+|------------|---------|------|--------------|
+| Linux x86_64 | `liz-linux-amd64` (~30MB) | Desktop con GUI | GitHub Release + DEB + RPM + tarball |
+| Linux x86_64 | `liz-server-linux-amd64` (~7MB) | Headless | GitHub Release + tarball + Docker |
+| Linux ARM64 | `liz-server-linux-arm64` (~7MB) | Headless | GitHub Release + tarball + Docker |
+| macOS Intel | `liz-server-darwin-amd64` (~8MB) | Headless | GitHub Release + tarball |
+| macOS Apple Silicon | `liz-server-darwin-arm64` (~8MB) | Headless | GitHub Release + tarball |
+
+### 15.4 Instalador multi-distro
+
+`scripts/install.sh` detecta automáticamente:
+
+1. **Plataforma** (`uname -s`): Linux o macOS
+2. **Arquitectura** (`uname -m`): amd64 o arm64
+3. **Distro** (`/etc/os-release`): debian, fedora, arch, opensuse
+
+Y ejecuta:
+1. Instala dependencias del sistema según distro (apt/dnf/pacman/zypper)
+2. Descarga binario del release de GitHub correspondiente
+3. Verifica que arranca con `--version`
+4. Instala en `/usr/local/bin/` (con sudo si es necesario)
+5. Crea `~/.liz/` y copia config de ejemplo
+6. Crea entrada de menú `.desktop` (Linux desktop)
+7. Muestra banner ASCII art al finalizar
+
+### 15.5 Imagen Docker
+
+Multi-stage build optimizado:
+
+```
+Stage 1: golang:1.22-alpine (~400MB)
+  ├── go mod download (cached layer)
+  ├── COPY . .
+  └── CGO_ENABLED=0 go build -tags headless → /out/liz-server
+
+Stage 2: gcr.io/distroless/static-debian12:nonroot (~2MB)
+  ├── COPY --from=builder /out/liz-server
+  ├── VOLUME /home/liz/.liz
+  ├── EXPOSE 3000
+  ├── HEALTHCHECK
+  └── ENTRYPOINT ["/usr/local/bin/liz-server"] CMD ["--headless"]
+```
+
+Imagen final: ~10MB, sin shell, sin package manager, sin libs innecesarias.
+Usuario `nonroot` (UID 65532). `security_opt: no-new-privileges:true`.
+
+### 15.6 Filosofía de release
+
+> **"Si no está en GitHub, no existe."**
+
+1. **Todo cambio se commitea y pushea lo antes posible** — no hay trabajo
+   "local" sin respaldo. Si se pierde el entorno, el código sigue en GitHub.
+2. **Todo release se taggea** — `git tag -a vX.Y.Z -m "..."` + `git push origin vX.Y.Z`.
+   El tag dispara el workflow de release que publica todo automáticamente.
+3. **Todo asset es verificable** — checksums SHA-256 de cada tarball.
+4. **Todo está documentado** — CHANGELOG.md, docs/INSTALACION.md, docs/RELEASE.md,
+   docs/ARQUITECTURA.md (este archivo).
+5. **Todo es reproducible** — el workflow de release se puede re-ejecutar sobre
+   cualquier tag y producir binarios idénticos (gracias a `-trimpath` y Go modules).
+
+---
+
 *Este documento es vivo. Se actualiza conforme avanza el desarrollo.*
-*Última actualización: 2026-07-26 — Fase 6: Auto-Creación de Herramientas completada*
+*Última actualización: 2026-07-26 — Fase 10: Release v0.1.0 completado*
