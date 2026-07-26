@@ -166,23 +166,45 @@ jobs:
         run: |
           CGO_ENABLED=0 go build -tags headless -o /tmp/liz-server ./cmd/liz
 
-      - name: Smoke test — arrancar servidor y verificar endpoint /api/v1/salud
+      - name: Smoke test — arrancar servidor y verificar endpoint /api/v1/health
         run: |
-          # Arrancar servidor en background
+          # Crear config mínima con puerto 3000
           mkdir -p ~/.liz
+          cat > ~/.liz/config.yaml <<EOF
+          nombre: Liz
+          version: "0.10.0"
+          servidor:
+            host: "127.0.0.1"
+            puerto: 3000
+          EOF
+
+          # Arrancar servidor en background
           /tmp/liz-server --headless &
           LIZ_PID=$!
           sleep 3
 
-          # Verificar que responde
-          curl -fsSL http://localhost:3000/api/v1/salud || curl -fsSL http://localhost:8080/api/v1/salud || {
-            echo "Server endpoints:"
-            curl -fsSL http://localhost:3000/ 2>&1 | head -20
-            kill $LIZ_PID
-            exit 1
-          }
+          # Verificar que responde (intentar puerto 3000 y 8080)
+          HEALTH_OK=false
+          for port in 3000 8080; do
+            echo "Probando puerto $port..."
+            if curl -fsSL "http://localhost:$port/api/v1/health" 2>/dev/null; then
+              echo "✓ Servidor responde en puerto $port"
+              HEALTH_OK=true
+              break
+            fi
+          done
 
-          echo "✓ Servidor responde correctamente"
+          if [ "$HEALTH_OK" = "false" ]; then
+            echo "✗ Servidor no responde en ningún puerto"
+            echo "=== Process status ==="
+            ps aux | grep liz-server || echo "Proceso no encontrado"
+            echo "=== Server output ==="
+            kill $LIZ_PID 2>/dev/null || true
+            wait $LIZ_PID 2>/dev/null || true
+            exit 1
+          fi
 
           # Cleanup
           kill $LIZ_PID 2>/dev/null || true
+          wait $LIZ_PID 2>/dev/null || true
+          echo "✓ Smoke test OK"
