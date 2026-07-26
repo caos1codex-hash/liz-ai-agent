@@ -141,14 +141,13 @@ Si el modelo falla → fallback automático al siguiente mejor modelo.
 
 | Componente | Tecnología | Por qué esta y no otra |
 |-----------|-----------|----------------------|
-| **Backend** | **Go** | Estabilidad máxima, binario estático (no dependencias), concurrency nativa (goroutines), perfecto para gestión de procesos del sistema, Docker/Kubernetes/Terraform están hechos en Go |
-| **Frontend** | **React + TypeScript + Vite** | Rico ecosistema, tipado seguro, build ultrarrápido, componentes reutilizables |
-| **Estilos** | **Tailwind CSS** | Utilidad-first, desarrollo rápido, tema oscuro fácil |
-| **Streaming** | **Server-Sent Events (SSE)** | Más simple que WebSocket, perfecto para respuestas unidireccionales, soporte nativo en browsers |
+| **Backend** | **Go 1.22** | Estabilidad máxima, binario estático (no dependencias), concurrency nativa (goroutines), perfecto para gestión de procesos del sistema, Docker/Kubernetes/Terraform están hechos en Go |
+| **GUI de escritorio** | **Fyne v2.8 (OpenGL/GLFW)** | App 100% nativa, sin navegador ni WebView ni Electron. Un solo binario que arranca servidor HTTP + ventana. Pinta vía OpenGL, accesorios vía X11/Wayland. Dependencias mínimas (libGL + libX*) |
+| **Markdown** | **Fyne RichText + goldmark** | Parser markdown integrado en Fyne, sin dependencias JS |
+| **Streaming** | **Server-Sent Events (SSE)** | Más simple que WebSocket, perfecto para respuestas unidireccionales, soporte nativo HTTP |
 | **Configuración** | **YAML** | Legible, editable a mano, soporta estructuras complejas |
 | **IA** | **API NVIDIA** | 8+ modelos disponibles, orquestación flexible, endpoint estándar OpenAI-compatible |
-| **Tests** | **Go testing + Playwright** | Go testing para backend, Playwright para E2E del frontend |
-| **Fontend Build** | **Vite** | HMR ultrarrápido, tree-shaking agresivo, configuración mínima |
+| **Tests** | **Go testing** | Cobertura unitaria + integración en un solo toolchain |
 
 ### Por qué NO Python para el backend:
 Se consideró Python por conveniencia, pero se descartó porque:
@@ -602,77 +601,81 @@ RESPUESTA:
 
 ---
 
-## 11. Diseño del Frontend
+## 11. Diseño de la GUI de Escritorio Nativa
 
-Interfaz estilo ChatGPT clásico, implementada en **Fase 8** con React 18 + TypeScript
-+ Vite + Tailwind CSS:
+Interfaz estilo ChatGPT clásico, implementada en **Fase 8** como app de escritorio
+**100% nativa** con **Fyne v2.8** (Go + OpenGL + GLFW). Sin navegador, sin WebView,
+sin Electron, sin Tauri. Un solo binario `liz` que arranca el servidor HTTP y abre
+la ventana:
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  🟣 Liz AI                          ⚙️ Model: Auto  🌙│
+│  🟣 Liz AI              ● online · 🧠 mixtral  · 🌙  │
 ├──────────────┬───────────────────────────────────────┤
-│              │                                       │
-│ Conversaciones│  🧠 Mixtral 8x22B  │  🔧 Buscador    │
-│ ─────────────│                                       │
-│ ▸ Proyecto Web│  Hola, soy Liz. ¿En qué puedo        │
-│   Setup DB   │  ayudarte hoy?                        │
-│ ▸ Debug Server│                                      │
-│   Config     │  ──────────────────────────────────  │
-│   Nginx      │  👤 Elimina los .log de más de 30    │
+│              │ [Proyecto: mi-repo  ▾]                │
+│ Conversaciones│                                       │
+│ ─────────────│  🤖 Hola, soy Liz. ¿En qué puedo      │
+│ ▸ Proyecto Web│      ayudarte hoy?                    │
+│   Setup DB   │                                       │
+│ ▸ Debug Server│  ─────────────────────────────────   │
+│   Config     │  👤 Elimina los .log de más de 30     │
 │              │     días en /var/log                  │
 │ ─────────────│                                      │
 │ + Nueva       │  🤖 Encontré 47 archivos .log...     │
-│              │     Eliminando...                     │
 │              │     ✅ 47 archivos eliminados           │
-│              │                                      │
-│              │  ──────────────────────────────────  │
+│              │  ─────────────────────────────────   │
+│              │  🧠 mixtral · 🔧 buscador · 1.2s      │
+│              │  ─────────────────────────────────   │
 │              │  [ Escribe un mensaje... ]       ➤    │
 └──────────────┴───────────────────────────────────────┘
 ```
 
-Características del frontend (implementadas en Fase 8):
-- Sidebar con historial de conversaciones (CRUD completo, persistencia localStorage)
+Características de la GUI (implementadas en Fase 8):
+- Sidebar con historial de conversaciones (CRUD completo, persistencia en Preferences)
 - Streaming de respuestas SSE (texto aparece gradualmente, token a token)
-- Markdown renderizado (tablas, listas, código con GFM)
-- Bloques de código con syntax highlighting y botón copiar (lazy-loaded)
-- Indicador del modelo usado (badge en cada mensaje + header)
-- Indicador de herramientas usadas durante ejecución (badges por mensaje)
-- Animación "Liz está pensando..." (3 puntos animados en placeholder)
+- Markdown nativo vía Fyne RichText + goldmark (bold, listas, código, headings)
+- Indicador del modelo usado (label en header + badge por mensaje)
+- Indicador de herramientas usadas durante ejecución (badge por mensaje)
+- Mensaje placeholder "Liz está pensando…" antes del primer chunk
 - Tema oscuro por defecto, claro alternativo (toggle persistente)
-- Responsive completo: drawer en móvil, sidebar fijo en desktop
-- Selector de proyecto de contexto (dropdown con proyectos indexados)
+- Selector de proyecto de contexto (Select con proyectos indexados)
 - Panel de métricas desplegable (mensajes procesados, modelo más usado, categorías)
-- Toasts para errores globales (auto-dismiss)
-- Welcome state con 4 prompts de ejemplo clicables
-- Auto-scroll inteligente (sigue el stream solo si el usuario está al fondo)
+- Toasts para errores globales (auto-dismiss a los 4s)
+- Welcome state con prompts de ejemplo cuando no hay sesión
+- Auto-scroll al fondo durante streaming
 - Mensajes optimistas del usuario (aparecen inmediatamente, marcados "enviando…")
 - Badges de métricas por mensaje (tokens, pasos, duración, herramientas)
+- Atajos de teclado: Ctrl+N (nueva), Ctrl+K (focus input), Ctrl+R (refrescar)
+- Modo `--headless`: servidor HTTP sin GUI (para Docker/servidores)
 
 ### Stack técnico
 
 | Capa | Tecnología |
 |------|-----------|
-| Framework | React 18 |
-| Lenguaje | TypeScript estricto |
-| Bundler | Vite 5 |
-| Estilos | Tailwind CSS 3 + plugin Typography |
-| Markdown | react-markdown + remark-gfm |
-| Code highlight | react-syntax-highlighter (Prism, lazy-loaded) |
-| ClassNames | clsx |
-| SSE | Parser propio sobre fetch ReadableStream |
+| Toolkit | Fyne v2.8 |
+| Lenguaje | Go 1.22 |
+| Renderizado | OpenGL (vía GLFW) |
+| Markdown | Fyne RichText + goldmark |
+| Iconos | Iconos nativos del tema Fyne |
+| Persistencia | fyne.App.Preferences() (sesión activa + tema) |
+| SSE | Parser propio sobre net/http + bufio.Scanner |
 
 ### Estructura del código
 
 ```
-web/
-├── src/
-│   ├── components/   # 18 componentes reutilizables
-│   ├── hooks/        # 8 custom hooks (useChat, useSesiones, useBackendHealth, ...)
-│   ├── lib/          # api.ts, sse.ts, endpoints.ts, utils.ts
-│   ├── types/api.ts  # Espejo de structs Go del backend
-│   └── styles/       # globals.css con Tailwind + scrollbar fino
-├── vite.config.ts    # Proxy /api → localhost:3000
-└── Makefile          # Integrado en Makefile raíz (web-dev, web-build, ...)
+internal/desktop/
+├── doc.go              # Documentación del paquete (filosofía "nativo nativo")
+├── cliente.go          # ClienteBackend: HTTP/SSE espejo de endpoints Go
+├── tema.go             # Tema personalizado (paleta morada Liz, dark/light)
+├── iconos.go           # Helpers centralizados de iconos Fyne
+├── app.go              # App struct orquestadora (Sidebar+Header+Chat+Toasts)
+├── sidebar.go          # Sidebar conversaciones (CRUD sesiones)
+├── header.go           # Header (status · modelo · métricas · theme toggle)
+├── chat.go             # ChatWindow (lista mensajes + input + SSE streaming)
+├── mensaje.go          # MensajeBubble (markdown + badges metadata)
+├── status_dot.go       # StatusDot (canvas.Circle con 3 estados)
+├── project_selector.go # Selector de proyecto de contexto
+└── toast.go            # Notificaciones efímeras (PopUp auto-dismiss)
 ```
 
 ### Flujo SSE (streaming)
@@ -680,28 +683,32 @@ web/
 ```
 1. Usuario envía mensaje
    ↓
-2. useChat() crea mensaje optimista + placeholder asistente
+2. ChatWindow.enviarMensaje() crea mensaje optimista + placeholder asistente
    ↓
-3. streamChat() hace POST /api/v1/chat con stream=true, Accept: text/event-stream
+3. ClienteBackend.StreamChat() hace POST /api/v1/chat con stream=true,
+   Accept: text/event-stream
    ↓
-4. Backend responde con chunks SSE:
+4. Backend responde con chunks SSE (text/event-stream):
    data: {"tipo":"estado","contenido":"Iniciando pipeline..."}\n\n
    data: {"tipo":"herramienta","contenido":"buscador"}\n\n
    data: {"tipo":"texto","contenido":"Encontré 47 archivos..."}\n\n
    data: {"tipo":"completado","sesion_id":"...","modelo":"...","tokens":1234}\n\n
    ↓
-5. onChunk() va acumulando texto y actualizando el mensaje asistente
-   onFinal() marca el mensaje como completado con métricas
+5. Goroutine procesa chunks, llama a fyne.Do() para actualizar UI en main thread:
+   - tipo=estado → actualiza placeholder
+   - tipo=herramienta → añade badge
+   - tipo=texto → acumula en RichText
+   - tipo=completado → marca mensaje completo con métricas
    ↓
-6. Sidebar refresca solo (evento custom 'liz:refrescar-sesiones')
+6. Sidebar.SetSesionActiva() propaga la nueva sesión creada por el backend
 ```
 
 ### Integración con el backend
 
-El frontend consume los endpoints ya implementados en fases anteriores:
+La GUI consume los endpoints ya implementados en fases anteriores:
 
-| Endpoint | Fase | Uso en frontend |
-|----------|------|-----------------|
+| Endpoint | Fase | Uso en GUI |
+|----------|------|------------|
 | `GET /api/v1/health` | 1 | StatusDot (poll cada 30s) |
 | `POST /api/v1/chat` (SSE) | 7 | Streaming de respuestas |
 | `GET /api/v1/chat` | 7 | Métricas del pipeline (poll 60s) |
@@ -713,25 +720,41 @@ El frontend consume los endpoints ya implementados en fases anteriores:
 ### Dev workflow
 
 ```bash
-# Terminal 1: backend
-make dev   # go run ./cmd/liz → http://localhost:3000
+# Modo desktop nativo (default) — backend + GUI en un solo proceso
+make dev          # go run ./cmd/liz → servidor HTTP + ventana Fyne
 
-# Terminal 2: frontend
-make web-install   # primera vez
-make web-dev       # vite → http://localhost:5173 (proxy a :3000)
+# Modo servidor puro (sin GUI, para Docker/servidores)
+make headless     # ./bin/liz --headless → solo HTTP en :3000
 ```
 
-Vite hace proxy de `/api/*` al backend, así que no hay CORS en dev. En
-producción, el build se sirve desde el mismo origen que el backend (o se
-configura CORS explícito).
+### Filosofía "nativo nativo"
 
-### Optimizaciones de bundle
+La decisión de migrar de React+Vite (web app) a Fyne (GUI nativa) responde a:
 
-- **Code-splitting**: chunks separados para `react-vendor` y `markdown-vendor`
-- **Lazy-load**: `react-syntax-highlighter` (~800KB) solo se carga cuando hay code blocks
-- **Memoización**: `Markdown` envuelto en `memo()` para evitar re-renders durante streaming
-- **Tailwind purge**: CSS final ~8KB gzip
-- **Bundle total**: 984KB sin comprimir, 337KB gzip (acceptable para una SPA de agente)
+1. **Filosofía "si no está en GitHub no existe"** — un solo binario es más fácil
+   de distribuir y versionar que una app web + assets estáticos + servidor.
+2. **Sin dependencia de navegador** — el usuario no necesita Chrome/Firefox.
+3. **Mejor integración con el sistema** — atajos de teclado nativos, icono en
+   taskbar, notificaciones del SO, arrastre de archivos.
+4. **Menor superficie de ataque** — sin Chromium embebido (~200MB), sin
+   vulnerabilidades JS, sin CORS.
+5. **Mejor rendimiento** — OpenGL directo, sin overhead de DOM/JS engine.
+6. **Identidad visual propia** — paleta morada Liz consistente en todas las
+   plataformas, sin importar el tema del sistema.
+
+### Dependencias de sistema (Linux)
+
+La GUI nativa requiere las librerías de desarrollo de OpenGL y X11/Wayland:
+
+```bash
+# Debian/Ubuntu
+sudo apt install libgl1-mesa-dev xorg-dev libxrandr-dev libxinerama-dev \
+     libxcursor-dev libxi-dev libxxf86vm-dev libwayland-dev libxkbcommon-dev \
+     libegl-dev libglx-dev
+```
+
+El binario resultante es ~30MB y no requiere runtime adicional (solo las
+librerías dinámicas del sistema, que están en cualquier Linux desktop).
 
 ---
 
@@ -746,7 +769,7 @@ configura CORS explícito).
 | 5 | Herramientas Base | #13 | 7 herramientas integradas funcionando | ✅ |
 | 6 | Auto-Creación | #14 | Liz se programa herramientas que no tiene | ✅ |
 | 7 | Pipeline de Chat | #15 | End-to-end: mensaje → modelo → herramientas → respuesta | ✅ |
-| 8 | Frontend | #16 | Interfaz ChatGPT clásico con streaming | ✅ |
+| 8 | App de Escritorio Nativa | #16 | GUI Fyne nativa con streaming SSE, sin navegador | ✅ |
 | 9 | Testing y Docs | #17 | Tests, seguridad, documentación completa | ⏳ |
 | 10 | Release v0.1.0 | #18 | Binarios, instalador, release en GitHub | ⏳ |
 

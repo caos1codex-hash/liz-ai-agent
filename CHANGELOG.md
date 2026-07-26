@@ -1,6 +1,133 @@
 # Changelog — Liz AI Agent
 
-## [0.8.0] — Fase 8: Frontend
+## [0.9.0] — Fase 8 (Desktop Nativa): migración web → Fyne
+
+> **Liz ahora es 100% nativa.** La interfaz web React+Vite+Tailwind se
+> reemplazó por una app de escritorio construida con **Fyne v2.8**
+> (Go + OpenGL + GLFW). Sin navegador, sin WebView, sin Electron, sin Tauri.
+> Un solo binario `liz` que arranca el servidor HTTP y abre la ventana.
+
+### Filosofía "nativo nativo"
+
+La migración de web app a GUI nativa responde a 6 razones:
+
+1. **Filosofía "si no está en GitHub no existe"** — un solo binario es más
+   fácil de distribuir y versionar que web app + assets estáticos.
+2. **Sin dependencia de navegador** — el usuario no necesita Chrome/Firefox.
+3. **Mejor integración con el sistema** — atajos nativos, icono en taskbar,
+   notificaciones del SO, arrastre de archivos.
+4. **Menor superficie de ataque** — sin Chromium embebido (~200MB), sin
+   vulnerabilidades JS, sin CORS.
+5. **Mejor rendimiento** — OpenGL directo, sin overhead DOM/JS engine.
+6. **Identidad visual propia** — paleta morada Liz consistente.
+
+### Eliminado
+
+- **`web/` directorio completo eliminado** — React 18, TypeScript, Vite,
+  Tailwind CSS, react-markdown, react-syntax-highlighter, todos los
+  componentes (`AppShell`, `ChatWindow`, `Sidebar`, `Header`, `Message`,
+  `Markdown`, `CodeBlock`, `TypingIndicator`, `Avatar`, `StatusDot`,
+  `ProjectSelector`, `MetricsPanel`, `Toast`, etc.), todos los hooks
+  (`useChat`, `useSesiones`, `useBackendHealth`, `useTheme`, etc.),
+  `lib/api.ts`, `lib/sse.ts`, `lib/endpoints.ts`, `types/api.ts`.
+- **Makefile**: targets `web-install`, `web-dev`, `web-build`, `web-clean`,
+  `web-preview`, `web-typecheck`, `all` (que incluía web-build).
+
+### Añadido
+
+- **`internal/desktop/`** — nuevo paquete Go con la GUI nativa:
+  - `doc.go` — documentación del paquete (filosofía "nativo nativo")
+  - `cliente.go` — `ClienteBackend` HTTP/SSE espejo de endpoints Go
+    (health, sesiones CRUD, chat estado, modelos, proyectos, SSE streaming)
+  - `tema.go` — tema personalizado Fyne (paleta morada Liz, dark/light,
+    alineado con `web/tailwind.config.js` original)
+  - `iconos.go` — helpers centralizados de iconos Fyne
+  - `app.go` — `App` struct orquestadora (Sidebar+Header+Chat+Toasts)
+  - `sidebar.go` — Sidebar conversaciones (CRUD, persistencia Preferences)
+  - `header.go` — Header (status · modelo · métricas · theme toggle)
+  - `chat.go` — `ChatWindow` (lista mensajes + input + SSE streaming)
+  - `mensaje.go` — `MensajeBubble` (markdown + badges metadata)
+  - `status_dot.go` — `StatusDot` (canvas.Circle con 3 estados)
+  - `project_selector.go` — Selector de proyecto de contexto
+  - `toast.go` — Notificaciones efímeras (PopUp auto-dismiss)
+- **`cmd/liz/main.go`**:
+  - Import `internal/desktop`
+  - Nuevo flag `--headless` para modo servidor puro (sin GUI)
+  - Modo default: servidor HTTP en goroutine + GUI Fyne bloqueante
+  - `EsperarBackend()` bloquea hasta que `/api/v1/health` responde (10s)
+  - Al cerrar la ventana, el proceso termina limpiamente
+- **`go.mod`**:
+  - Bump Go 1.21 → 1.22
+  - Añadida dependencia `fyne.io/fyne/v2 v2.8.0`
+  - Dependencias transitivas: goldmark, glfw v3.4, go-gl, fsnotify,
+    godbus, rymdport/portal, BurntSushi/toml, etc.
+- **Makefile**:
+  - Nuevos targets: `headless`, `desktop`, `test-short`, `clean-all`
+  - `help` actualizado con notas de dependencias Linux
+- **README.md**: nueva sección "App de Escritorio Nativa (Fase 8)"
+  con quickstart, características, dependencias Linux y estructura.
+- **ARQUITECTURA.md**: sección 11 renombrada "Diseño de la GUI de
+  Escritorio Nativa" con filosofía, flujo SSE, integración y stack.
+
+### Características de la GUI (Fase 8 desktop)
+
+- **Chat con streaming SSE** — la respuesta aparece token a token
+- **Sidebar de conversaciones** — CRUD completo, persistencia en Preferences
+- **Header informativo** — status backend, modelo en uso, métricas pipeline
+- **Selector de proyecto** — elige qué proyecto indexado usar como contexto
+- **Markdown nativo** — RichText.ParseMarkdown con bold, listas, código
+- **Tema oscuro/claro** — paleta morada Liz, toggle persistente
+- **Toasts** — notificaciones efímeras para errores/avisos
+- **Atajos de teclado** — Ctrl+N (nueva), Ctrl+K (focus), Ctrl+R (refrescar)
+- **Modo `--headless`** — servidor HTTP sin GUI para Docker/servidores
+
+### Modos de operación
+
+| Modo | Comando | Descripción |
+|------|---------|-------------|
+| Desktop nativo (default) | `make dev` o `./bin/liz` | Backend + GUI Fyne en un solo proceso |
+| Servidor puro | `make headless` o `./bin/liz --headless` | Solo HTTP en :3000, sin GUI |
+
+### Dependencias de sistema (Linux)
+
+Para compilar la GUI nativa se requieren las librerías de desarrollo de
+OpenGL y X11/Wayland:
+
+```bash
+# Debian/Ubuntu
+sudo apt install libgl1-mesa-dev xorg-dev libxrandr-dev libxinerama-dev \
+     libxcursor-dev libxi-dev libxxf86vm-dev libwayland-dev libxkbcommon-dev \
+     libegl-dev libglx-dev
+```
+
+El binario resultante es ~30MB y no requiere runtime adicional.
+
+### Stack técnico GUI
+
+| Capa | Tecnología |
+|------|-----------|
+| Toolkit | Fyne v2.8 |
+| Lenguaje | Go 1.22 |
+| Renderizado | OpenGL (vía GLFW) |
+| Markdown | Fyne RichText + goldmark |
+| Iconos | Iconos nativos del tema Fyne |
+| Persistencia | fyne.App.Preferences() |
+| SSE | Parser propio sobre net/http + bufio.Scanner |
+
+### Commits de la Fase 8 desktop
+
+- `feat(P8.D.1)`: scaffolding paquete `internal/desktop/` + cliente HTTP/SSE + tema
+- `feat(P8.D.2)`: sidebar conversaciones — CRUD sesiones + sesión activa persistente
+- `feat(P8.D.3)`: ChatWindow con SSE streaming + MensajeBubble markdown
+- `feat(P8.D.4)`: Header con status backend + modelo + métricas + theme toggle
+- `feat(P8.D.5)`: App orquestadora + ProjectSelector + welcome state + atajos
+- `feat(P8.D.6)`: integración GUI en main.go + flag --headless + bump 0.9.0
+- `feat(P8.D.7)`: eliminar web/ + actualizar Makefile + README + ARQUITECTURA + CHANGELOG
+- `feat(P8.D.8)`: tests unitarios para lógica desktop
+
+---
+
+## [0.8.0] — Fase 8: Frontend (web, eliminado en 0.9.0)
 
 > **Liz ahora tiene cara. El frontend React+TypeScript trae el pipeline de chat
 > a una interfaz ChatGPT-clásica con streaming SSE, sidebar de conversaciones,

@@ -3,8 +3,9 @@
 > Agente de IA autonomo que controla completamente tu Linux mediante lenguaje natural.
 > No es un chatbot. No es un asistente de codigo. Es un sistema operativo de IA.
 
-![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8)
+![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8)
 ![Phase](https://img.shields.io/badge/fase-8%20de%2010-orange)
+![GUI](https://img.shields.io/badge/GUI-Fyne%20nativa-7c3aed)
 ![Tests](https://img.shields.io/badge/tests-616%20pasando-brightgreen)
 
 ## Que hace Liz?
@@ -32,12 +33,31 @@ Si necesita una herramienta que no tiene, la escribe, compila y registra. Nunca 
 ### 4. Permisos Una Vez
 Permisos completos al iniciar. Nunca vuelve a preguntar.
 
+### 5. App de Escritorio Nativa (Fase 8)
+GUI 100% nativa con Fyne v2 + OpenGL. Sin navegador, sin WebView, sin Electron.
+Un solo binario `liz` que arranca el servidor HTTP y abre la ventana.
+
 ## Arquitectura
 
 ```
-FRONTEND (React) ──SSE──> PIPELINE ──> ORQUESTADOR (8+ modelos NVIDIA)
-                        │                  │
-                        └──> CONTEXTO      └──> HERRAMIENTAS (7 + auto-creadas)
+┌──────────────────────────────────────────────────────────────┐
+│                  App de Escritorio Liz (Fyne)                │
+│  ┌──────────┬─────────────────────────────────────────────┐  │
+│  │ Sidebar  │ Header (status · modelo · métricas · tema) │  │
+│  │          ├─────────────────────────────────────────────┤  │
+│  │ Convers. │ [Proyecto ▾]                                │  │
+│  │ ──────── │                                              │  │
+│  │ + Nueva  │ 🤖 Mensajes con SSE streaming + markdown    │  │
+│  │          │                                              │  │
+│  │          │ [Escribe un mensaje…           ] [Enviar]   │  │
+│  └──────────┴─────────────────────────────────────────────┘  │
+└──────────────────────────┬───────────────────────────────────┘
+                           │ HTTP + SSE (localhost:3000)
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│  Backend Go: Pipeline + Orquestador (8+ NVIDIA) +            │
+│              Herramientas (7 + auto-creadas) + Memoria       │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 **[Arquitectura completa](docs/ARQUITECTURA.md)** | **[Decisiones de diseno](docs/DECISIONES.md)**
@@ -52,10 +72,88 @@ FRONTEND (React) ──SSE──> PIPELINE ──> ORQUESTADOR (8+ modelos NVIDI
 | 4 | Orquestador NVIDIA | [#12](https://github.com/caos1codex-hash/liz-ai-agent/issues/12) | ✅ |
 | 5 | Herramientas Base | [#13](https://github.com/caos1codex-hash/liz-ai-agent/issues/13) | ✅ |
 | 6 | Auto-Creacion | [#14](https://github.com/caos1codex-hash/liz-ai-agent/issues/14) | ✅ |
-| 7 | Pipeline de Chat | [#15](https://github.com/caos1codex-hash/liz-ai-agent/issues/15) | End-to-end: mensaje → modelo → herramientas → respuesta | ✅ |
-| 8 | Frontend | [#16](https://github.com/caos1codex-hash/liz-ai-agent/issues/16) | Interfaz ChatGPT clásico con streaming | ✅ |
+| 7 | Pipeline de Chat | [#15](https://github.com/caos1codex-hash/liz-ai-agent/issues/15) | ✅ |
+| 8 | App de Escritorio Nativa | [#16](https://github.com/caos1codex-hash/liz-ai-agent/issues/16) | ✅ |
 | 9 | Testing y Docs | [#17](https://github.com/caos1codex-hash/liz-ai-agent/issues/17) | ⏳ |
 | 10 | Release v0.1.0 | [#18](https://github.com/caos1codex-hash/liz-ai-agent/issues/18) | ⏳ |
+
+## App de Escritorio Nativa (Fase 8)
+
+La interfaz de Liz es una app **100% nativa** construida con **Fyne v2**
+(Go + OpenGL + GLFW). No usa navegador, no usa WebView, no usa Electron/Tauri.
+
+### Quick start
+
+```bash
+# Modo desktop nativo (default)
+make dev          # go run ./cmd/liz → arranca backend + abre ventana
+
+# O compilar y ejecutar
+make run          # make build && ./bin/liz
+
+# Modo servidor puro (sin GUI, para Docker/servidores)
+make headless     # ./bin/liz --headless
+```
+
+### Características
+
+- **Chat con streaming SSE** — la respuesta aparece token a token
+- **Sidebar de conversaciones** — CRUD completo, persistencia en Preferences
+- **Header informativo** — status backend, modelo en uso, métricas pipeline
+- **Selector de proyecto** — elige qué proyecto indexado usar como contexto
+- **Markdown nativo** — RichText.ParseMarkdown con bold, listas, código
+- **Tema oscuro/claro** — paleta morada Liz, toggle persistente
+- **Toasts** — notificaciones efímeras para errores/avisos
+- **Atajos de teclado** — Ctrl+N (nueva), Ctrl+K (focus), Ctrl+R (refrescar)
+
+### Dependencias de sistema (Linux)
+
+La GUI nativa requiere las librerías de desarrollo de OpenGL y X11/Wayland:
+
+```bash
+# Debian/Ubuntu
+sudo apt install libgl1-mesa-dev xorg-dev libxrandr-dev libxinerama-dev \
+     libxcursor-dev libxi-dev libxxf86vm-dev libwayland-dev libxkbcommon-dev \
+     libegl-dev libglx-dev
+
+# Fedora
+sudo dnf install mesa-libGL-devel libXrandr-devel libXinerama-devel \
+     libXcursor-devel libXi-devel libXxf86vm-devel wayland-devel \
+     libxkbcommon-devel
+
+# Arch
+sudo pacman -S mesa libxrandr libxinerama libxcursor libxi libxxf86vm \
+              wayland libxkbcommon
+```
+
+### Estructura
+
+```
+internal/desktop/
+├── doc.go              # Documentación del paquete
+├── cliente.go          # ClienteBackend HTTP/SSE (espejo de endpoints Go)
+├── tema.go             # Tema personalizado Fyne (paleta morada Liz)
+├── iconos.go           # Helpers centralizados de iconos
+├── app.go              # App struct orquestadora
+├── sidebar.go          # Sidebar conversaciones (CRUD)
+├── header.go           # Header con status/modelo/métricas/theme toggle
+├── chat.go             # ChatWindow con SSE streaming
+├── mensaje.go          # MensajeBubble con markdown
+├── status_dot.go       # StatusDot (canvas.Circle)
+├── project_selector.go # Selector de proyecto de contexto
+└── toast.go            # Notificaciones efímeras
+```
+
+### Stack técnico GUI
+
+| Capa | Tecnología |
+|------|-----------|
+| Toolkit | Fyne v2.8 |
+| Renderizado | OpenGL (GLFW) |
+| Lenguaje | Go 1.22 |
+| Markdown | Fyne RichText + goldmark |
+| Iconos | Iconos nativos del tema Fyne |
+| Persistencia | fyne.App.Preferences() |
 
 ## Sistema de Memoria World-Class (Fase 3.5)
 
@@ -450,57 +548,12 @@ curl http://localhost:3000/api/v1/chat
 curl http://localhost:3000/api/v1/chat/metricas
 ```
 
-## Frontend (Fase 8)
-
-Interfaz React estilo ChatGPT clásico con streaming SSE, sidebar de conversaciones,
-header con métricas en vivo, y soporte responsive (móvil/tablet/desktop).
-
-**Stack:** React 18 + TypeScript + Vite + Tailwind CSS
-
-### Quick start
-
-```bash
-# Terminal 1: backend Go (puerto 3000)
-make dev
-
-# Terminal 2: frontend Vite (puerto 5173, proxy a :3000)
-make web-install   # primera vez
-make web-dev
-# → http://localhost:5173
-```
-
-### Características
-
-- **Chat con streaming SSE** — la respuesta aparece progresivamente, token a token
-- **Sidebar de conversaciones** — lista, crea, selecciona y elimina sesiones
-- **Header informativo** — status del backend, modelo en uso, métricas del pipeline
-- **Selector de proyecto** — elige qué proyecto indexado usar como contexto
-- **Markdown + syntax highlighting** — tablas, listas, code blocks con botón copiar
-- **Tema oscuro/claro** — oscuro por defecto, persistencia en localStorage
-- **Responsive** — drawer en móvil, sidebar fijo en desktop
-- **Toasts** — notificaciones efímeras para errores
-
-### Estructura
-
-```
-web/
-├── src/
-│   ├── components/   # AppShell, ChatWindow, Sidebar, Header, Message, Markdown, ...
-│   ├── hooks/        # useChat, useSesiones, useBackendHealth, useTheme, ...
-│   ├── lib/          # api.ts, sse.ts, endpoints.ts, utils.ts
-│   ├── types/        # api.ts (espejo de structs Go)
-│   └── pages/        # StatusPage (placeholder), ChatPage (default)
-└── README.md         # Documentación específica del frontend
-```
-
-**[Documentación del frontend](web/README.md)**
-
 ## Stack
 
 | Componente | Tecnologia |
 |-----------|-----------|
-| Backend | Go |
-| Frontend | React + TypeScript + Vite |
+| Backend | Go 1.22 |
+| GUI de escritorio | Fyne v2.8 (OpenGL/GLFW nativo) |
 | IA | API NVIDIA (8+ modelos) |
 | Streaming | Server-Sent Events |
 
