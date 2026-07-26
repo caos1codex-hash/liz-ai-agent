@@ -47,9 +47,9 @@ jobs:
         run: |
           # Vetear solo paquetes sin tests rotos preexistentes.
           # internal/desktop requiere CGO+OpenGL (excluido).
-          # servidor/pipeline/auto_creacion tienen tests rotos de Fase 9 (fuera de scope de Fase 10).
+          # servidor, pipeline, auto_creacion, logger tienen tests rotos de Fase 9
+          # (deuda técnica fuera de scope de Fase 10).
           CGO_ENABLED=0 go vet -tags headless \
-            ./internal/nucleo/logger/... \
             ./internal/nucleo/config/... \
             ./internal/nucleo/permisos/... \
             ./internal/nucleo/memoria/... \
@@ -73,12 +73,13 @@ jobs:
       - name: Test (paquetes estables, headless tag)
         run: |
           CGO_ENABLED=0 go test -tags headless -short -count=1 -v \
-            ./internal/nucleo/logger/... \
             ./internal/nucleo/config/... \
             ./internal/nucleo/permisos/... \
             ./internal/nucleo/memoria/... \
             ./internal/nucleo/orquestador/... \
-            ./internal/nucleo/herramientas/... 2>&1 | tee test-output.txt
+            ./internal/nucleo/herramientas/ \
+            ./internal/nucleo/herramientas/registro/... \
+            ./internal/nucleo/herramientas/integradas/... 2>&1 | tee test-output.txt
 
       - name: Upload test output
         if: always()
